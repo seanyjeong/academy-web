@@ -23,9 +23,9 @@ interface SalaryDetail {
   month: string;
   base_salary: number;
   overtime_pay: number;
-  allowance: number;
-  deduction: number;
-  net_salary: number;
+  incentive: number;
+  deductions: number;
+  total_salary: number;
   working_hours?: number;
   overtime_hours?: number;
   lessons?: {

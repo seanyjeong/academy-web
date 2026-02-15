@@ -189,10 +189,10 @@ export default function PaymentDetailPage() {
                 <dt className="text-slate-500">등록일</dt>
                 <dd className="font-medium">{formatDate(payment.created_at)}</dd>
               </div>
-              {payment.memo && (
+              {payment.notes && (
                 <div className="col-span-2">
                   <dt className="text-slate-500">메모</dt>
-                  <dd className="font-medium">{payment.memo}</dd>
+                  <dd className="font-medium">{payment.notes}</dd>
                 </div>
               )}
             </dl>
