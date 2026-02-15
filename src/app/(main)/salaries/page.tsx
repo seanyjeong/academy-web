@@ -94,7 +94,7 @@ export default function SalariesPage() {
   const handleGenerate = async () => {
     setGenerating(true);
     try {
-      await salariesAPI.generate({ month: generateMonth });
+      await salariesAPI.calculate({ month: generateMonth });
       toast.success("급여가 생성되었습니다");
       setGenerateOpen(false);
       setMonth(generateMonth);

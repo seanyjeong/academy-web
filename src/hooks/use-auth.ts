@@ -24,12 +24,14 @@ export const useAuth = create<AuthState>((set, get) => ({
   login: async (email, password) => {
     const { data } = await authAPI.login({ email, password });
     localStorage.setItem("token", data.token);
+    if (data.refresh_token) localStorage.setItem("refreshToken", data.refresh_token);
     localStorage.setItem("activeAcademyId", String(data.user.academy_id));
     set({ user: data.user as User });
   },
 
   logout: () => {
     localStorage.removeItem("token");
+    localStorage.removeItem("refreshToken");
     localStorage.removeItem("activeAcademyId");
     set({ user: null });
     window.location.href = "/login";

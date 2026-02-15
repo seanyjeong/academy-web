@@ -17,8 +17,8 @@ export const salariesAPI = {
   list: (params?: Record<string, unknown>) =>
     apiClient.get("/salaries", { params }),
   get: (id: number) => apiClient.get(`/salaries/${id}`),
-  generate: (data: Record<string, unknown>) =>
-    apiClient.post("/salaries/generate", data),
+  calculate: (data: Record<string, unknown>) =>
+    apiClient.post("/salaries/calculate", data),
 };
 
 export const incomesAPI = {

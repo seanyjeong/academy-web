@@ -71,7 +71,7 @@ export default function AssignmentsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await assignmentsAPI.update({ assignments });
+      await assignmentsAPI.bulkUpdate({ assignments });
       toast.success("반배정이 저장되었습니다");
     } catch {
       toast.error("저장에 실패했습니다");

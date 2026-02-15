@@ -7,6 +7,7 @@ export interface LoginRequest {
 
 export interface LoginResponse {
   token: string;
+  refresh_token?: string;
   user: {
     id: number;
     email: string;
@@ -36,7 +37,7 @@ export const authAPI = {
     apiClient.post("/auth/forgot-password", { email }),
 
   resetPassword: (token: string, password: string) =>
-    apiClient.post("/auth/reset-password", { token, password }),
+    apiClient.post("/auth/reset-password", { token, new_password: password }),
 
   me: () => apiClient.get<LoginResponse["user"]>("/auth/me"),
 };

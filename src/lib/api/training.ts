@@ -10,7 +10,7 @@ export const recordsAPI = {
   batchCreate: (data: Payload) =>
     apiClient.post("/training/records/batch", data),
   byStudent: (studentId: number, params?: Params) =>
-    apiClient.get(`/training/records/student/${studentId}`, { params }),
+    apiClient.get("/training/records", { params: { ...params, student_id: studentId } }),
 };
 
 export const plansAPI = {
@@ -22,8 +22,8 @@ export const plansAPI = {
 };
 
 export const logsAPI = {
-  list: (params?: Params) => apiClient.get("/training/logs", { params }),
-  create: (data: Payload) => apiClient.post("/training/logs", data),
+  list: (params?: Params) => apiClient.get("/training/training-logs", { params }),
+  create: (data: Payload) => apiClient.post("/training/training-logs", data),
 };
 
 export const exercisesAPI = {
@@ -55,27 +55,25 @@ export const testsAPI = {
     apiClient.get(`/training/tests/${testId}/sessions`),
   session: (testId: number, sessionId: number) =>
     apiClient.get(`/training/tests/${testId}/sessions/${sessionId}`),
-  sessionRecords: (testId: number, sessionId: number) =>
-    apiClient.get(
-      `/training/tests/${testId}/sessions/${sessionId}/records`
-    ),
-  saveRecords: (testId: number, sessionId: number, data: Payload) =>
-    apiClient.post(
-      `/training/tests/${testId}/sessions/${sessionId}/records`,
-      data
-    ),
+  sessionRecords: (_testId: number, sessionId: number) =>
+    apiClient.get(`/training/tests/sessions/${sessionId}/records`),
+  saveRecords: (_testId: number, sessionId: number, data: Payload) =>
+    apiClient.post(`/training/tests/sessions/${sessionId}/records`, data),
   rankings: (testId: number) =>
     apiClient.get(`/training/tests/${testId}/rankings`),
 };
 
 export const assignmentsAPI = {
   list: () => apiClient.get("/training/assignments"),
-  update: (data: Payload) => apiClient.put("/training/assignments", data),
+  update: (id: number, data: Payload) =>
+    apiClient.put(`/training/assignments/${id}`, data),
+  bulkUpdate: (data: Payload) =>
+    apiClient.put("/training/assignments/bulk", data),
 };
 
 export const trainingStatsAPI = {
   overview: (params?: Params) =>
-    apiClient.get("/training/stats", { params }),
+    apiClient.get("/training/stats/averages", { params }),
   leaderboard: (params?: Params) =>
     apiClient.get("/training/stats/leaderboard", { params }),
 };
