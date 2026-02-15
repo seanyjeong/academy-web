@@ -3,8 +3,10 @@
 import { usePathname } from "next/navigation";
 import { Bell, Search } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
+import { useAcademy } from "@/hooks/use-academy";
 
 const BREADCRUMB_MAP: Record<string, string[]> = {
   "/dashboard": ["대시보드"],
@@ -45,6 +47,7 @@ function getBreadcrumb(pathname: string): string[] {
 export function Header() {
   const pathname = usePathname();
   const { user } = useAuth();
+  const { activeBranchId, isMultiBranch } = useAcademy();
   const breadcrumb = getBreadcrumb(pathname);
 
   return (
@@ -65,6 +68,11 @@ export function Header() {
             </span>
           </span>
         ))}
+        {activeBranchId === null && isMultiBranch && (
+          <Badge variant="secondary" className="ml-2 bg-blue-50 text-blue-600">
+            통합 조회
+          </Badge>
+        )}
       </div>
 
       {/* Actions */}

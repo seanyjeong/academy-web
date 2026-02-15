@@ -63,7 +63,7 @@ export function Sidebar() {
 
             return (
               <div key={section.title} className="mb-4">
-                <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                <p className="mb-1 px-3 text-[12px] font-semibold uppercase tracking-wider text-slate-400">
                   {section.title}
                 </p>
                 {visibleItems.map((item) => {
