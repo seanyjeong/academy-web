@@ -29,14 +29,16 @@ type PaymentStatus = "paid" | "unpaid" | "partial";
 
 interface Payment {
   id: number;
-  student_name: string;
-  month: string;
-  amount: number;
+  student_id: number;
+  student_name?: string;
+  year_month: string;
+  base_amount: number;
+  final_amount: number;
   paid_amount: number;
-  status: PaymentStatus;
-  paid_at: string | null;
-  method: string | null;
-  memo: string | null;
+  payment_status: PaymentStatus;
+  payment_method: string | null;
+  paid_date: string | null;
+  notes: string | null;
 }
 
 const STATUS_CONFIG: Record<
@@ -150,7 +152,7 @@ export default function PaymentsPage() {
               </TableHeader>
               <TableBody>
                 {payments.map((p) => {
-                  const cfg = STATUS_CONFIG[p.status] ?? STATUS_CONFIG.unpaid;
+                  const cfg = STATUS_CONFIG[p.payment_status] ?? STATUS_CONFIG.unpaid;
                   return (
                     <TableRow key={p.id}>
                       <TableCell>
@@ -158,12 +160,12 @@ export default function PaymentsPage() {
                           href={`/payments/${p.id}`}
                           className="font-medium text-blue-600 hover:underline"
                         >
-                          {p.student_name}
+                          {p.student_name ?? `학생 #${p.student_id}`}
                         </Link>
                       </TableCell>
-                      <TableCell>{p.month}</TableCell>
+                      <TableCell>{p.year_month}</TableCell>
                       <TableCell className="text-right">
-                        {formatKRW(p.amount)}
+                        {formatKRW(p.final_amount)}
                       </TableCell>
                       <TableCell className="text-right">
                         {formatKRW(p.paid_amount)}
@@ -174,7 +176,7 @@ export default function PaymentsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        {p.paid_at ? formatDate(p.paid_at) : "-"}
+                        {p.paid_date ? formatDate(p.paid_date) : "-"}
                       </TableCell>
                     </TableRow>
                   );

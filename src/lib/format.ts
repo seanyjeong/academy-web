@@ -1,5 +1,5 @@
-export function formatKRW(amount: number): string {
-  return `\u20A9${amount.toLocaleString("ko-KR")}`;
+export function formatKRW(amount: number | undefined | null): string {
+  return `\u20A9${(amount ?? 0).toLocaleString("ko-KR")}`;
 }
 
 export function formatDate(dateStr: string): string {

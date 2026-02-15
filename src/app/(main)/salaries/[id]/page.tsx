@@ -101,19 +101,19 @@ export default function SalaryDetailPage() {
               </div>
               <div className="flex justify-between">
                 <dt className="text-slate-500">추가 수당</dt>
-                <dd className="font-medium">{formatKRW(salary.allowance)}</dd>
+                <dd className="font-medium">{formatKRW(salary.incentive)}</dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-slate-500">공제</dt>
                 <dd className="font-medium text-red-500">
-                  -{formatKRW(salary.deduction)}
+                  -{formatKRW(salary.deductions)}
                 </dd>
               </div>
               <Separator />
               <div className="flex justify-between">
                 <dt className="font-semibold text-slate-900">실지급액</dt>
                 <dd className="font-bold text-lg">
-                  {formatKRW(salary.net_salary)}
+                  {formatKRW(salary.total_salary)}
                 </dd>
               </div>
             </dl>

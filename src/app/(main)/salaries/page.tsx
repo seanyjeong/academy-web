@@ -38,13 +38,14 @@ import { toast } from "sonner";
 interface Salary {
   id: number;
   instructor_id: number;
-  instructor_name: string;
-  month: string;
+  instructor_name?: string;
+  year_month: string;
   base_salary: number;
   overtime_pay: number;
-  allowance: number;
-  deduction: number;
-  net_salary: number;
+  incentive: number;
+  deductions: number;
+  total_salary: number;
+  payment_status: string;
 }
 
 function getMonthOptions() {
@@ -197,7 +198,7 @@ export default function SalariesPage() {
                         href={`/salaries/${s.id}`}
                         className="font-medium text-blue-600 hover:underline"
                       >
-                        {s.instructor_name}
+                        {s.instructor_name ?? `강사 #${s.instructor_id}`}
                       </Link>
                     </TableCell>
                     <TableCell className="text-right">
@@ -207,13 +208,13 @@ export default function SalariesPage() {
                       {formatKRW(s.overtime_pay)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {formatKRW(s.allowance)}
+                      {formatKRW(s.incentive)}
                     </TableCell>
                     <TableCell className="text-right text-red-500">
-                      -{formatKRW(s.deduction)}
+                      -{formatKRW(s.deductions)}
                     </TableCell>
                     <TableCell className="text-right font-bold">
-                      {formatKRW(s.net_salary)}
+                      {formatKRW(s.total_salary)}
                     </TableCell>
                   </TableRow>
                 ))}

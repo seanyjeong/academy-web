@@ -134,7 +134,7 @@ export default function DashboardPage() {
         />
         <StatCard
           title="이번달 수입"
-          value={`${stats.monthIncome.toLocaleString()}원`}
+          value={`${(stats.monthIncome ?? 0).toLocaleString()}원`}
           icon={<TrendingUp className="h-6 w-6 text-emerald-600" />}
           color="bg-emerald-50"
         />

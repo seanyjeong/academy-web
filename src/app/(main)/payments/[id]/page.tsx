@@ -29,14 +29,15 @@ type PaymentStatus = "paid" | "unpaid" | "partial";
 interface PaymentDetail {
   id: number;
   student_id: number;
-  student_name: string;
-  month: string;
-  amount: number;
+  student_name?: string;
+  year_month: string;
+  base_amount: number;
+  final_amount: number;
   paid_amount: number;
-  status: PaymentStatus;
-  method: string | null;
-  memo: string | null;
-  paid_at: string | null;
+  payment_status: PaymentStatus;
+  payment_method: string | null;
+  notes: string | null;
+  paid_date: string | null;
   created_at: string;
   history?: { id: number; amount: number; method: string; paid_at: string }[];
 }
@@ -104,7 +105,7 @@ export default function PaymentDetailPage() {
     );
   }
 
-  const statusCfg = STATUS_CONFIG[payment.status] ?? STATUS_CONFIG.unpaid;
+  const statusCfg = STATUS_CONFIG[payment.payment_status] ?? STATUS_CONFIG.unpaid;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -137,11 +138,11 @@ export default function PaymentDetailPage() {
             <dl className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <dt className="text-slate-500">학생명</dt>
-                <dd className="font-medium">{payment.student_name}</dd>
+                <dd className="font-medium">{payment.student_name ?? `학생 #${payment.student_id}`}</dd>
               </div>
               <div>
                 <dt className="text-slate-500">수납월</dt>
-                <dd className="font-medium">{payment.month}</dd>
+                <dd className="font-medium">{payment.year_month}</dd>
               </div>
             </dl>
           </CardContent>
@@ -156,7 +157,7 @@ export default function PaymentDetailPage() {
             <dl className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <dt className="text-slate-500">금액</dt>
-                <dd className="font-medium">{formatKRW(payment.amount)}</dd>
+                <dd className="font-medium">{formatKRW(payment.final_amount)}</dd>
               </div>
               <div>
                 <dt className="text-slate-500">납부액</dt>
@@ -175,13 +176,13 @@ export default function PaymentDetailPage() {
               <div>
                 <dt className="text-slate-500">수납방법</dt>
                 <dd className="font-medium">
-                  {payment.method ? (METHOD_LABELS[payment.method] ?? payment.method) : "-"}
+                  {payment.payment_method ? (METHOD_LABELS[payment.payment_method] ?? payment.payment_method) : "-"}
                 </dd>
               </div>
               <div>
                 <dt className="text-slate-500">납부일</dt>
                 <dd className="font-medium">
-                  {payment.paid_at ? formatDate(payment.paid_at) : "-"}
+                  {payment.paid_date ? formatDate(payment.paid_date) : "-"}
                 </dd>
               </div>
               <div>
