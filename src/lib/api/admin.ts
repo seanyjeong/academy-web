@@ -13,9 +13,9 @@ export const settingsAPI = {
   updateNotifications: (data: any) => apiClient.put("/notifications/settings", data),
   events: () => apiClient.get("/academy-events"),
   createEvent: (data: any) => apiClient.post("/academy-events", data),
-  branches: () => apiClient.get("/academies/branches"),
-  addBranch: (data: any) => apiClient.post("/academies/branches", data),
-  inviteOwner: (data: any) => apiClient.post("/academies/invite", data),
+  branches: () => apiClient.get("/organization/branches"),
+  addBranch: (data: any) => apiClient.post("/organization/branches", data),
+  inviteOwner: (data: any) => apiClient.post("/organization/invitations", data),
 };
 
 export const staffAPI = {
