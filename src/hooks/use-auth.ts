@@ -57,6 +57,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     const { user } = get();
     if (!user) return false;
     if (module === "core") return true;
+    if (user.role === "owner" || user.role === "admin") return true;
     return user.modules?.includes(module) ?? false;
   },
 }));
