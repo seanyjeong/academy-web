@@ -1,10 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { Plus, Clock, Users, CalendarCheck } from "lucide-react";
+import { useEffect, useState, useMemo, useCallback } from "react";
+import { ChevronLeft, ChevronRight, Plus, Clock, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -25,66 +23,188 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { schedulesAPI } from "@/lib/api/schedules";
+import { DAY_LABELS, TIME_SLOT_LABELS } from "@/lib/types/student";
+import type { TimeSlot } from "@/lib/types/student";
 
 interface Schedule {
   id: number;
   name: string;
   time_slot: string;
-  day_of_week: string;
+  day_of_week: string | null;
+  days?: string[];
+  class_date: string;
   start_time?: string;
   end_time?: string;
   instructor_name?: string;
   student_count?: number;
-  created_at: string;
 }
 
-const DAY_LABELS: Record<string, string> = {
-  mon: "월",
-  tue: "화",
-  wed: "수",
-  thu: "목",
-  fri: "금",
-  sat: "토",
-  sun: "일",
+const TIME_SLOT_COLORS: Record<string, string> = {
+  morning: "bg-blue-500",
+  afternoon: "bg-green-500",
+  evening: "bg-orange-500",
 };
 
-const TIME_SLOT_LABELS: Record<string, string> = {
-  morning: "오전",
-  afternoon: "오후",
-  evening: "저녁",
+const TIME_SLOT_RING_COLORS: Record<string, string> = {
+  morning: "ring-blue-200 bg-blue-50 text-blue-700",
+  afternoon: "ring-green-200 bg-green-50 text-green-700",
+  evening: "ring-orange-200 bg-orange-50 text-orange-700",
 };
+
+const DAY_OF_WEEK_MAP: Record<string, number> = {
+  sun: 0,
+  mon: 1,
+  tue: 2,
+  wed: 3,
+  thu: 4,
+  fri: 5,
+  sat: 6,
+};
+
+function getCalendarDays(year: number, month: number): (number | null)[][] {
+  const firstDay = new Date(year, month - 1, 1).getDay();
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const weeks: (number | null)[][] = [];
+  let week: (number | null)[] = Array(firstDay).fill(null);
+  for (let d = 1; d <= daysInMonth; d++) {
+    week.push(d);
+    if (week.length === 7) {
+      weeks.push(week);
+      week = [];
+    }
+  }
+  if (week.length > 0) {
+    while (week.length < 7) week.push(null);
+    weeks.push(week);
+  }
+  return weeks;
+}
+
+function getDayOfWeek(year: number, month: number, day: number): number {
+  return new Date(year, month - 1, day).getDay();
+}
+
+function formatDateStr(year: number, month: number, day: number): string {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
 
 export default function SchedulesPage() {
+  const today = new Date();
+  const [year, setYear] = useState(today.getFullYear());
+  const [month, setMonth] = useState(today.getMonth() + 1);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  const [dayDetailOpen, setDayDetailOpen] = useState(false);
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [form, setForm] = useState({
     name: "",
     time_slot: "morning",
     day_of_week: "mon",
     start_time: "",
     end_time: "",
+    instructor_name: "",
   });
 
-  async function fetchSchedules() {
+  const yearMonth = `${year}-${String(month).padStart(2, "0")}`;
+  const weeks = useMemo(() => getCalendarDays(year, month), [year, month]);
+
+  const fetchSchedules = useCallback(async () => {
     setLoading(true);
     try {
       const { data } = await schedulesAPI.list();
-      setSchedules(data.items ?? data ?? []);
+      const items: Schedule[] = data.items ?? data ?? [];
+      setSchedules(items);
     } catch {
       setSchedules([]);
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     fetchSchedules();
-  }, []);
+  }, [fetchSchedules]);
+
+  // Map schedules to calendar dates
+  // Schedules have class_date (specific date) or day_of_week (recurring weekly)
+  const schedulesByDate = useMemo(() => {
+    const map: Record<string, Schedule[]> = {};
+    const daysInMonth = new Date(year, month, 0).getDate();
+
+    for (const schedule of schedules) {
+      if (schedule.class_date && schedule.class_date.startsWith(yearMonth)) {
+        // Specific date schedule
+        if (!map[schedule.class_date]) map[schedule.class_date] = [];
+        map[schedule.class_date].push(schedule);
+      } else if (schedule.day_of_week || (schedule.days && schedule.days.length > 0)) {
+        // Recurring schedule - map to all matching days in the month
+        const dayKeys = schedule.days && schedule.days.length > 0
+          ? schedule.days
+          : schedule.day_of_week
+            ? [schedule.day_of_week]
+            : [];
+
+        for (const dayKey of dayKeys) {
+          const targetDow = DAY_OF_WEEK_MAP[dayKey];
+          if (targetDow === undefined) continue;
+
+          for (let d = 1; d <= daysInMonth; d++) {
+            if (getDayOfWeek(year, month, d) === targetDow) {
+              const dateStr = formatDateStr(year, month, d);
+              if (!map[dateStr]) map[dateStr] = [];
+              // Avoid duplicates
+              if (!map[dateStr].some((s) => s.id === schedule.id)) {
+                map[dateStr].push(schedule);
+              }
+            }
+          }
+        }
+      }
+    }
+    return map;
+  }, [schedules, year, month, yearMonth]);
+
+  function changeMonth(delta: number) {
+    let newMonth = month + delta;
+    let newYear = year;
+    if (newMonth < 1) {
+      newMonth = 12;
+      newYear -= 1;
+    } else if (newMonth > 12) {
+      newMonth = 1;
+      newYear += 1;
+    }
+    setYear(newYear);
+    setMonth(newMonth);
+  }
+
+  function handleDayClick(day: number) {
+    setSelectedDay(day);
+    setDayDetailOpen(true);
+  }
+
+  function openCreateFromDay() {
+    if (selectedDay !== null) {
+      const dow = getDayOfWeek(year, month, selectedDay);
+      const dayKeys = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+      setForm((prev) => ({ ...prev, day_of_week: dayKeys[dow] }));
+    }
+    setDayDetailOpen(false);
+    setCreateOpen(true);
+  }
 
   async function handleCreate() {
     try {
-      await schedulesAPI.create(form);
+      const payload: Record<string, unknown> = {
+        name: form.name,
+        time_slot: form.time_slot,
+        day_of_week: form.day_of_week,
+      };
+      if (form.start_time) payload.start_time = form.start_time;
+      if (form.end_time) payload.end_time = form.end_time;
+
+      await schedulesAPI.create(payload);
       toast.success("수업이 등록되었습니다");
       setCreateOpen(false);
       setForm({
@@ -93,6 +213,7 @@ export default function SchedulesPage() {
         day_of_week: "mon",
         start_time: "",
         end_time: "",
+        instructor_name: "",
       });
       fetchSchedules();
     } catch {
@@ -100,13 +221,33 @@ export default function SchedulesPage() {
     }
   }
 
+  const selectedDateStr = selectedDay ? formatDateStr(year, month, selectedDay) : "";
+  const selectedDaySchedules = selectedDateStr ? (schedulesByDate[selectedDateStr] ?? []) : [];
+
+  // Group selected day schedules by time_slot
+  const groupedBySlot = useMemo(() => {
+    const groups: Record<string, Schedule[]> = {
+      morning: [],
+      afternoon: [],
+      evening: [],
+    };
+    for (const s of selectedDaySchedules) {
+      const slot = s.time_slot || "morning";
+      if (!groups[slot]) groups[slot] = [];
+      groups[slot].push(s);
+    }
+    return groups;
+  }, [selectedDaySchedules]);
+
+  const isToday = (day: number) => {
+    return year === today.getFullYear() && month === today.getMonth() + 1 && day === today.getDate();
+  };
+
   return (
     <div>
+      {/* Header */}
       <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">수업일정</h1>
-          <p className="text-sm text-slate-500">수업 일정을 관리합니다</p>
-        </div>
+        <h1 className="text-xl font-bold text-slate-900">수업 일정</h1>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
             <Button>
@@ -123,9 +264,7 @@ export default function SchedulesPage() {
                 <Label>수업 이름</Label>
                 <Input
                   value={form.name}
-                  onChange={(e) =>
-                    setForm({ ...form, name: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="예: 초등 오전반"
                 />
               </div>
@@ -134,9 +273,7 @@ export default function SchedulesPage() {
                   <Label>시간대</Label>
                   <Select
                     value={form.time_slot}
-                    onValueChange={(v) =>
-                      setForm({ ...form, time_slot: v })
-                    }
+                    onValueChange={(v) => setForm({ ...form, time_slot: v })}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue />
@@ -152,17 +289,15 @@ export default function SchedulesPage() {
                   <Label>요일</Label>
                   <Select
                     value={form.day_of_week}
-                    onValueChange={(v) =>
-                      setForm({ ...form, day_of_week: v })
-                    }
+                    onValueChange={(v) => setForm({ ...form, day_of_week: v })}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(DAY_LABELS).map(([k, v]) => (
-                        <SelectItem key={k} value={k}>
-                          {v}요일
+                      {["mon", "tue", "wed", "thu", "fri", "sat"].map((key) => (
+                        <SelectItem key={key} value={key}>
+                          {DAY_LABELS[DAY_OF_WEEK_MAP[key]]}요일
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -175,9 +310,7 @@ export default function SchedulesPage() {
                   <Input
                     type="time"
                     value={form.start_time}
-                    onChange={(e) =>
-                      setForm({ ...form, start_time: e.target.value })
-                    }
+                    onChange={(e) => setForm({ ...form, start_time: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -185,11 +318,17 @@ export default function SchedulesPage() {
                   <Input
                     type="time"
                     value={form.end_time}
-                    onChange={(e) =>
-                      setForm({ ...form, end_time: e.target.value })
-                    }
+                    onChange={(e) => setForm({ ...form, end_time: e.target.value })}
                   />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label>강사 (선택)</Label>
+                <Input
+                  value={form.instructor_name}
+                  onChange={(e) => setForm({ ...form, instructor_name: e.target.value })}
+                  placeholder="강사명 입력"
+                />
               </div>
             </div>
             <DialogFooter>
@@ -204,61 +343,209 @@ export default function SchedulesPage() {
         </Dialog>
       </div>
 
+      {/* Month navigation */}
+      <div className="mb-4 flex items-center justify-center gap-3">
+        <Button variant="outline" size="icon" onClick={() => changeMonth(-1)}>
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <span className="min-w-[120px] text-center text-lg font-semibold text-slate-900">
+          {year}년 {month}월
+        </span>
+        <Button variant="outline" size="icon" onClick={() => changeMonth(1)}>
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Calendar grid */}
       {loading ? (
         <div className="flex h-48 items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
         </div>
-      ) : schedules.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-slate-400">
-            등록된 수업이 없습니다
-          </CardContent>
-        </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {schedules.map((s) => (
-            <Card key={s.id} className="py-4 transition-shadow hover:shadow-md">
-              <CardContent className="space-y-3">
-                <div className="flex items-start justify-between">
-                  <h3 className="font-semibold text-slate-900">{s.name}</h3>
-                  <Badge variant="secondary">
-                    {TIME_SLOT_LABELS[s.time_slot] ?? s.time_slot}
-                  </Badge>
-                </div>
-                <div className="space-y-1 text-sm text-slate-500">
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4" />
-                    <span>
-                      {DAY_LABELS[s.day_of_week] ?? s.day_of_week}요일
-                      {s.start_time && s.end_time
-                        ? ` ${s.start_time} - ${s.end_time}`
-                        : ""}
+        <div className="overflow-hidden rounded-lg border border-slate-200">
+          {/* Day of week header */}
+          <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
+            {DAY_LABELS.map((label, i) => (
+              <div
+                key={i}
+                className={`py-2 text-center text-xs font-medium ${
+                  i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-slate-500"
+                }`}
+              >
+                {label}
+              </div>
+            ))}
+          </div>
+
+          {/* Calendar weeks */}
+          {weeks.map((week, wi) => (
+            <div key={wi} className="grid grid-cols-7 border-b border-slate-100 last:border-b-0">
+              {week.map((day, di) => {
+                if (day === null) {
+                  return <div key={di} className="min-h-[80px] bg-slate-50/50" />;
+                }
+                const dateStr = formatDateStr(year, month, day);
+                const daySchedules = schedulesByDate[dateStr] ?? [];
+                const hasSchedules = daySchedules.length > 0;
+                const todayClass = isToday(day);
+
+                // Collect unique time slots
+                const timeSlots = [...new Set(daySchedules.map((s) => s.time_slot))];
+
+                return (
+                  <button
+                    key={di}
+                    onClick={() => handleDayClick(day)}
+                    className={`min-h-[80px] border-r border-slate-100 p-1.5 text-left transition-colors last:border-r-0 hover:bg-slate-50 ${
+                      todayClass ? "bg-blue-50/50" : ""
+                    }`}
+                  >
+                    <span
+                      className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
+                        todayClass
+                          ? "bg-blue-600 text-white"
+                          : di === 0
+                            ? "text-red-500"
+                            : di === 6
+                              ? "text-blue-500"
+                              : "text-slate-700"
+                      }`}
+                    >
+                      {day}
                     </span>
-                  </div>
-                  {s.instructor_name && (
-                    <div className="flex items-center gap-2">
-                      <Users className="h-4 w-4" />
-                      <span>{s.instructor_name}</span>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    <span>{s.student_count ?? 0}명</span>
-                  </div>
-                </div>
-                <div className="pt-2">
-                  <Button variant="outline" size="sm" asChild>
-                    <Link href={`/schedules/${s.id}/attendance`}>
-                      <CalendarCheck className="h-4 w-4" />
-                      출결 체크
-                    </Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                    {hasSchedules && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {timeSlots.map((slot) => (
+                          <span
+                            key={slot}
+                            className={`h-2 w-2 rounded-full ${TIME_SLOT_COLORS[slot] ?? "bg-slate-400"}`}
+                            title={TIME_SLOT_LABELS[slot as TimeSlot] ?? slot}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {hasSchedules && (
+                      <div className="mt-0.5">
+                        {daySchedules.slice(0, 2).map((s) => (
+                          <div
+                            key={s.id}
+                            className={`mt-0.5 truncate rounded px-1 text-[10px] leading-tight ${
+                              TIME_SLOT_RING_COLORS[s.time_slot] ?? "bg-slate-100 text-slate-600"
+                            }`}
+                          >
+                            {s.name}
+                          </div>
+                        ))}
+                        {daySchedules.length > 2 && (
+                          <div className="mt-0.5 text-[10px] text-slate-400">
+                            +{daySchedules.length - 2}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           ))}
         </div>
       )}
+
+      {/* Legend */}
+      <div className="mt-3 flex items-center gap-4 text-xs text-slate-500">
+        <div className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
+          오전
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
+          오후
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-orange-500" />
+          저녁
+        </div>
+      </div>
+
+      {/* Day detail dialog */}
+      <Dialog open={dayDetailOpen} onOpenChange={setDayDetailOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedDay && `${year}년 ${month}월 ${selectedDay}일`}{" "}
+              {selectedDay && (
+                <span className="text-sm font-normal text-slate-400">
+                  ({DAY_LABELS[getDayOfWeek(year, month, selectedDay)]})
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {selectedDaySchedules.length === 0 ? (
+              <p className="py-6 text-center text-sm text-slate-400">
+                등록된 수업이 없습니다
+              </p>
+            ) : (
+              (["morning", "afternoon", "evening"] as const).map((slot) => {
+                const slotSchedules = groupedBySlot[slot];
+                if (!slotSchedules || slotSchedules.length === 0) return null;
+                return (
+                  <div key={slot}>
+                    <div className="mb-2 flex items-center gap-2">
+                      <span
+                        className={`h-2.5 w-2.5 rounded-full ${TIME_SLOT_COLORS[slot]}`}
+                      />
+                      <span className="text-sm font-medium text-slate-700">
+                        {TIME_SLOT_LABELS[slot]}반
+                      </span>
+                    </div>
+                    <div className="space-y-2 pl-5">
+                      {slotSchedules.map((s) => (
+                        <div
+                          key={s.id}
+                          className="rounded-lg border border-slate-200 px-3 py-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-slate-900">
+                              {s.name}
+                            </span>
+                            <Badge variant="secondary" className="text-xs">
+                              {s.student_count ?? 0}명
+                            </Badge>
+                          </div>
+                          <div className="mt-1 flex items-center gap-3 text-xs text-slate-500">
+                            {s.start_time && s.end_time && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {s.start_time} - {s.end_time}
+                              </span>
+                            )}
+                            {s.instructor_name && (
+                              <span className="flex items-center gap-1">
+                                <Users className="h-3 w-3" />
+                                {s.instructor_name}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDayDetailOpen(false)}>
+              닫기
+            </Button>
+            <Button onClick={openCreateFromDay}>
+              <Plus className="h-4 w-4" />
+              수업 추가
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -9,8 +9,20 @@ export const paymentsAPI = {
   update: (id: number, data: Record<string, unknown>) =>
     apiClient.put(`/payments/${id}`, data),
   delete: (id: number) => apiClient.delete(`/payments/${id}`),
+  pay: (id: number, data: Record<string, unknown>) =>
+    apiClient.post(`/payments/${id}/pay`, data),
   credits: (params?: Record<string, unknown>) =>
     apiClient.get("/payments/credits", { params }),
+  unpaid: (params?: Record<string, unknown>) =>
+    apiClient.get("/payments/unpaid", { params }),
+  bulkMonthly: (data: Record<string, unknown>) =>
+    apiClient.post("/payments/bulk-monthly", data),
+  prepaidPreview: (data: Record<string, unknown>) =>
+    apiClient.post("/payments/prepaid-preview", data),
+  prepaidPay: (data: Record<string, unknown>) =>
+    apiClient.post("/payments/prepaid-pay", data),
+  prepaid: (studentId: number) =>
+    apiClient.get(`/payments/prepaid/${studentId}`),
 };
 
 export const salariesAPI = {

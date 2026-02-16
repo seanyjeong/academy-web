@@ -11,4 +11,5 @@ export const studentsAPI = {
   classDays: (params?: { student_id?: number }) => apiClient.get("/students/class-days", { params }),
   updateClassDays: (studentId: number, data: Record<string, unknown>) =>
     apiClient.put(`/students/${studentId}/class-days`, data),
+  settings: () => apiClient.get("/settings"),
 };

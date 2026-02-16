@@ -9,4 +9,8 @@ export const schedulesAPI = {
   attendance: (id: number, date?: string) => apiClient.get(`/schedules/${id}/attendance`, { params: { date } }),
   markAttendance: (id: number, data: Record<string, unknown>) =>
     apiClient.post(`/schedules/${id}/attendance`, data),
+  monthly: (params?: Record<string, unknown>) => apiClient.get("/schedules", { params }),
+  stats: (yearMonth: string) => apiClient.get("/schedules/stats", { params: { year_month: yearMonth } }),
+  slot: (date: string, instructorId?: number) =>
+    apiClient.get("/schedules/slot", { params: { date, instructor_id: instructorId } }),
 };

@@ -17,7 +17,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { studentsAPI } from "@/lib/api/students";
-import { Student, STATUS_LABELS, StudentStatus, TIME_SLOT_LABELS } from "@/lib/types/student";
+import {
+  Student,
+  STATUS_LABELS,
+  StudentStatus,
+  TIME_SLOT_LABELS,
+  STUDENT_TYPE_LABELS,
+  DAY_LABELS,
+} from "@/lib/types/student";
+import { formatKRW } from "@/lib/format";
 
 const STATUS_COLORS: Record<StudentStatus, string> = {
   active: "bg-blue-50 text-blue-600",
@@ -34,7 +42,32 @@ const STATUS_TABS: { value: string; label: string }[] = [
   { value: "trial", label: "체험" },
   { value: "paused", label: "휴원" },
   { value: "withdrawn", label: "퇴원" },
+  { value: "graduated", label: "졸업" },
+  { value: "pending", label: "미등록" },
 ];
+
+function formatClassDays(classDays: number[] | string | undefined): string {
+  if (!classDays) return "-";
+  let days: number[];
+  if (typeof classDays === "string") {
+    try {
+      days = JSON.parse(classDays);
+    } catch {
+      return "-";
+    }
+  } else {
+    days = classDays;
+  }
+  if (days.length === 0) return "-";
+  return days.map((d: number) => DAY_LABELS[d]).join("");
+}
+
+interface StatusCounts {
+  active: number;
+  trial: number;
+  paused: number;
+  total: number;
+}
 
 export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
@@ -45,10 +78,23 @@ export default function StudentsPage() {
   const [total, setTotal] = useState(0);
   const limit = 20;
 
+  // Stat counts
+  const [counts, setCounts] = useState<StatusCounts>({
+    active: 0,
+    trial: 0,
+    paused: 0,
+    total: 0,
+  });
+
   const fetchStudents = useCallback(async () => {
     setLoading(true);
     try {
-      const params: { page: number; limit: number; status?: string; search?: string } = { page, limit };
+      const params: {
+        page: number;
+        limit: number;
+        status?: string;
+        search?: string;
+      } = { page, limit };
       if (statusFilter !== "all") params.status = statusFilter;
       if (search) params.search = search;
       const { data } = await studentsAPI.list(params);
@@ -61,15 +107,73 @@ export default function StudentsPage() {
     }
   }, [statusFilter, search, page]);
 
+  // Fetch stat counts once on mount
+  const fetchCounts = useCallback(async () => {
+    try {
+      const [allRes, activeRes, trialRes, pausedRes] = await Promise.all([
+        studentsAPI.list({ limit: 0 }),
+        studentsAPI.list({ status: "active", limit: 0 }),
+        studentsAPI.list({ status: "trial", limit: 0 }),
+        studentsAPI.list({ status: "paused", limit: 0 }),
+      ]);
+      setCounts({
+        total: allRes.data.total ?? 0,
+        active: activeRes.data.total ?? 0,
+        trial: trialRes.data.total ?? 0,
+        paused: pausedRes.data.total ?? 0,
+      });
+    } catch {
+      // silently fail
+    }
+  }, []);
+
   useEffect(() => {
     fetchStudents();
   }, [fetchStudents]);
 
   useEffect(() => {
+    fetchCounts();
+  }, [fetchCounts]);
+
+  useEffect(() => {
     setPage(1);
   }, [statusFilter, search]);
 
+  // Refresh counts when data changes (after creating/deleting students)
+  useEffect(() => {
+    if (!loading) {
+      fetchCounts();
+    }
+  }, [loading, fetchCounts]);
+
   const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  const statCards = [
+    {
+      label: "재원",
+      count: counts.active,
+      color: "text-blue-600",
+      bgColor: "bg-blue-50",
+    },
+    {
+      label: "체험",
+      count: counts.trial,
+      color: "text-amber-600",
+      bgColor: "bg-amber-50",
+    },
+    {
+      label: "휴원",
+      count: counts.paused,
+      color: "text-red-600",
+      bgColor: "bg-red-50",
+    },
+    {
+      label: "전체",
+      count: counts.total,
+      color: "text-slate-700",
+      bgColor: "bg-slate-50",
+    },
+  ];
 
   return (
     <div>
@@ -86,6 +190,20 @@ export default function StudentsPage() {
             학생 등록
           </Link>
         </Button>
+      </div>
+
+      {/* Stat Summary Cards */}
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {statCards.map((card) => (
+          <Card key={card.label} className={card.bgColor}>
+            <CardContent className="flex flex-col items-center justify-center py-4">
+              <span className={`text-2xl font-bold ${card.color}`}>
+                {card.count}
+              </span>
+              <span className="text-sm text-slate-500">{card.label}</span>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
       <Card>
@@ -126,9 +244,12 @@ export default function StudentsPage() {
                 <TableRow>
                   <TableHead>이름</TableHead>
                   <TableHead>상태</TableHead>
+                  <TableHead>구분</TableHead>
+                  <TableHead>학년</TableHead>
                   <TableHead>연락처</TableHead>
-                  <TableHead>학교</TableHead>
-                  <TableHead>수업시간</TableHead>
+                  <TableHead>수업요일</TableHead>
+                  <TableHead>시간대</TableHead>
+                  <TableHead className="text-right">수업료</TableHead>
                   <TableHead>등록일</TableHead>
                 </TableRow>
               </TableHeader>
@@ -136,7 +257,7 @@ export default function StudentsPage() {
                 {students.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={9}
                       className="py-12 text-center text-slate-400"
                     >
                       {search
@@ -164,13 +285,24 @@ export default function StudentsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-slate-500">
+                        {STUDENT_TYPE_LABELS[s.student_type] ?? "-"}
+                      </TableCell>
+                      <TableCell className="text-slate-500">
+                        {s.grade ?? "-"}
+                      </TableCell>
+                      <TableCell className="text-slate-500">
                         {s.phone ?? "-"}
                       </TableCell>
                       <TableCell className="text-slate-500">
-                        {s.school ?? "-"}
+                        {formatClassDays(s.class_days)}
                       </TableCell>
                       <TableCell className="text-slate-500">
-                        {s.time_slot ? TIME_SLOT_LABELS[s.time_slot] ?? s.time_slot : "-"}
+                        {s.time_slot
+                          ? (TIME_SLOT_LABELS[s.time_slot] ?? s.time_slot)
+                          : "-"}
+                      </TableCell>
+                      <TableCell className="text-right text-slate-500">
+                        {formatKRW(s.final_monthly_tuition)}
                       </TableCell>
                       <TableCell className="text-slate-500">
                         {new Date(s.created_at).toLocaleDateString("ko-KR")}
