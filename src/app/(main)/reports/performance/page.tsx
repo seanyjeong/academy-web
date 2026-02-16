@@ -12,13 +12,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Table,
   TableBody,
   TableCell,
@@ -29,21 +22,24 @@ import {
 import { ArrowLeft, Download } from "lucide-react";
 
 export default function PerformancePage() {
-  const [period, setPeriod] = useState("month");
+  const [yearMonth, setYearMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await reportsAPI.performance({ period });
+      const res = await reportsAPI.performance({ year_month: yearMonth });
       setData(res.data);
     } catch {
       setData(null);
     } finally {
       setLoading(false);
     }
-  }, [period]);
+  }, [yearMonth]);
 
   useEffect(() => {
     fetchData();
@@ -51,7 +47,7 @@ export default function PerformancePage() {
 
   const handleExport = async () => {
     try {
-      const res = await reportsAPI.export("performance", { period });
+      const res = await reportsAPI.export("performance", { year_month: yearMonth });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement("a");
       link.href = url;
@@ -79,16 +75,12 @@ export default function PerformancePage() {
             <p className="text-sm text-slate-500">강사별, 종목별 성과를 분석합니다</p>
           </div>
           <div className="flex items-center gap-2">
-            <Select value={period} onValueChange={setPeriod}>
-              <SelectTrigger className="w-[120px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="week">주간</SelectItem>
-                <SelectItem value="month">월간</SelectItem>
-                <SelectItem value="quarter">분기</SelectItem>
-              </SelectContent>
-            </Select>
+            <input
+              type="month"
+              value={yearMonth}
+              onChange={(e) => setYearMonth(e.target.value)}
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+            />
             <Button variant="outline" size="sm" onClick={handleExport}>
               <Download className="mr-1.5 h-4 w-4" />
               내보내기
