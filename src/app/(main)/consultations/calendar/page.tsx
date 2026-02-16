@@ -30,11 +30,15 @@ export default function ConsultationCalendarPage() {
   const fetchCalendar = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await consultationsAPI.calendar({
-        year: currentMonth.getFullYear(),
-        month: currentMonth.getMonth() + 1,
-      });
-      setEvents(Array.isArray(data) ? data : data.data || []);
+      const ym = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, "0")}`;
+      const { data } = await consultationsAPI.calendar({ year_month: ym });
+      // Backend returns { "2026-02-01": [...], ... } grouped by date
+      if (data && typeof data === "object" && !Array.isArray(data)) {
+        const flat = Object.values(data).flat();
+        setEvents(flat as any[]);
+      } else {
+        setEvents(Array.isArray(data) ? data : []);
+      }
     } catch {
       setEvents([]);
     } finally {
