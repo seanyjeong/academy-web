@@ -146,7 +146,11 @@ export default function ExpensesPage() {
     try {
       const { data } = await expensesAPI.categories();
       if (Array.isArray(data) && data.length > 0) {
-        setCategories(data);
+        // API returns [{category, count, total}] — extract category strings
+        const cats = data.map((c: string | { category: string }) =>
+          typeof c === "string" ? c : c.category
+        );
+        setCategories(cats);
       }
     } catch {
       // Keep defaults
