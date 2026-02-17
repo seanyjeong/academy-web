@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { ChevronLeft, ChevronRight, Plus, Clock, Users } from "lucide-react";
+import Link from "next/link";
+import { ChevronLeft, ChevronRight, Plus, Clock, Users, CheckCircle2, XCircle, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -29,6 +30,7 @@ import type { TimeSlot } from "@/lib/types/student";
 interface Schedule {
   id: number;
   name: string;
+  title?: string;
   time_slot: string;
   day_of_week: string | null;
   days?: string[];
@@ -36,7 +38,13 @@ interface Schedule {
   start_time?: string;
   end_time?: string;
   instructor_name?: string;
+  instructor_id?: number;
   student_count?: number;
+  attendance_taken?: boolean;
+  is_closed?: boolean;
+  close_reason?: string;
+  capacity?: number;
+  has_makeup?: boolean;
 }
 
 const TIME_SLOT_COLORS: Record<string, string> = {
@@ -503,15 +511,40 @@ export default function SchedulesPage() {
                       {slotSchedules.map((s) => (
                         <div
                           key={s.id}
-                          className="rounded-lg border border-slate-200 px-3 py-2"
+                          className={`rounded-lg border px-3 py-2 ${
+                            s.is_closed
+                              ? "border-red-200 bg-red-50/50"
+                              : s.attendance_taken
+                                ? "border-green-200 bg-green-50/30"
+                                : "border-slate-200"
+                          }`}
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium text-slate-900">
-                              {s.name}
-                            </span>
-                            <Badge variant="secondary" className="text-xs">
-                              {s.student_count ?? 0}명
-                            </Badge>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-slate-900">
+                                {s.title || s.name}
+                              </span>
+                              {s.is_closed && (
+                                <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                                  휴강
+                                </Badge>
+                              )}
+                              {s.has_makeup && (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-600">
+                                  보충
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {s.attendance_taken ? (
+                                <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                              ) : !s.is_closed ? (
+                                <XCircle className="h-3.5 w-3.5 text-slate-300" />
+                              ) : null}
+                              <Badge variant="secondary" className="text-xs">
+                                {s.student_count ?? 0}{s.capacity ? `/${s.capacity}` : ""}명
+                              </Badge>
+                            </div>
                           </div>
                           <div className="mt-1 flex items-center gap-3 text-xs text-slate-500">
                             {s.start_time && s.end_time && (
@@ -526,7 +559,22 @@ export default function SchedulesPage() {
                                 {s.instructor_name}
                               </span>
                             )}
+                            {!s.is_closed && (
+                              <Link
+                                href={`/schedules/${s.id}/attendance`}
+                                className="flex items-center gap-1 text-blue-600 hover:underline"
+                                onClick={() => setDayDetailOpen(false)}
+                              >
+                                <ClipboardList className="h-3 w-3" />
+                                출석부
+                              </Link>
+                            )}
                           </div>
+                          {s.is_closed && s.close_reason && (
+                            <p className="mt-1 text-[11px] text-red-500">
+                              사유: {s.close_reason}
+                            </p>
+                          )}
                         </div>
                       ))}
                     </div>

@@ -12,10 +12,28 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Clock } from "lucide-react";
+
+const WEEKDAYS = [
+  { key: "mon", label: "월" },
+  { key: "tue", label: "화" },
+  { key: "wed", label: "수" },
+  { key: "thu", label: "목" },
+  { key: "fri", label: "금" },
+  { key: "sat", label: "토" },
+];
+
+interface BlockedSlot {
+  id: number;
+  date: string;
+  start_time: string;
+  end_time: string;
+  reason?: string;
+}
 
 export default function ConsultationSettingsPage() {
   const [loading, setLoading] = useState(true);
@@ -23,6 +41,8 @@ export default function ConsultationSettingsPage() {
   const [settings, setSettings] = useState({
     slug: "",
     enabled: true,
+    duration_minutes: 30,
+    max_per_slot: 1,
     fields: {
       school: true,
       grade: true,
@@ -33,6 +53,14 @@ export default function ConsultationSettingsPage() {
     notify_email: "",
   });
 
+  // Weekly hours
+  const [weeklyHours, setWeeklyHours] = useState<Record<string, string[]>>({});
+  const [savingHours, setSavingHours] = useState(false);
+
+  // Blocked slots
+  const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
+  const [newBlock, setNewBlock] = useState({ date: "", start_time: "09:00", end_time: "18:00", reason: "" });
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -42,10 +70,18 @@ export default function ConsultationSettingsPage() {
             ...prev,
             slug: data.slug ?? "",
             enabled: data.is_active ?? true,
+            duration_minutes: data.duration_minutes ?? 30,
+            max_per_slot: data.max_per_slot ?? 1,
             fields: data.fields ?? prev.fields,
             notify_on_new: data.notify_on_new ?? true,
             notify_email: data.notify_email ?? "",
           }));
+          if (data.weekly_hours && typeof data.weekly_hours === "object") {
+            setWeeklyHours(data.weekly_hours);
+          }
+          if (Array.isArray(data.blocked_slots)) {
+            setBlockedSlots(data.blocked_slots);
+          }
         }
       } catch {
         // Use defaults
@@ -62,6 +98,8 @@ export default function ConsultationSettingsPage() {
       await consultationsAPI.updateSettings({
         slug: settings.slug,
         is_active: settings.enabled,
+        duration_minutes: settings.duration_minutes,
+        max_per_slot: settings.max_per_slot,
         fields: settings.fields,
         notify_on_new: settings.notify_on_new,
         notify_email: settings.notify_email,
@@ -218,6 +256,227 @@ export default function ConsultationSettingsPage() {
                 className="mt-1.5"
               />
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Duration & Capacity */}
+        <Card>
+          <CardHeader>
+            <CardTitle>상담 기본 설정</CardTitle>
+            <CardDescription>상담 시간과 슬롯당 최대 인원을 설정합니다</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>상담 시간 (분)</Label>
+                <Input
+                  type="number"
+                  min={10}
+                  max={120}
+                  value={settings.duration_minutes}
+                  onChange={(e) =>
+                    setSettings((p) => ({ ...p, duration_minutes: Number(e.target.value) || 30 }))
+                  }
+                  className="mt-1.5"
+                />
+              </div>
+              <div>
+                <Label>슬롯당 최대 인원</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={settings.max_per_slot}
+                  onChange={(e) =>
+                    setSettings((p) => ({ ...p, max_per_slot: Number(e.target.value) || 1 }))
+                  }
+                  className="mt-1.5"
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Weekly Hours */}
+        <Card>
+          <CardHeader>
+            <CardTitle>주간 상담 가능 시간</CardTitle>
+            <CardDescription>요일별 상담 가능 시간대를 설정합니다 (예: 09:00-12:00)</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {WEEKDAYS.map(({ key, label }) => {
+              const hours = weeklyHours[key] ?? [];
+              return (
+                <div key={key} className="flex items-center gap-3 rounded-lg border px-4 py-2">
+                  <span className="w-8 text-sm font-medium">{label}</span>
+                  <div className="flex flex-1 flex-wrap items-center gap-2">
+                    {hours.map((h, i) => (
+                      <Badge key={i} variant="secondary" className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {h}
+                        <button
+                          className="ml-1 text-slate-400 hover:text-red-500"
+                          onClick={() => {
+                            const updated = hours.filter((_, idx) => idx !== i);
+                            setWeeklyHours((wh) => ({ ...wh, [key]: updated }));
+                          }}
+                        >
+                          ×
+                        </button>
+                      </Badge>
+                    ))}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        const range = prompt("시간대 입력 (예: 09:00-12:00)");
+                        if (range && /^\d{2}:\d{2}-\d{2}:\d{2}$/.test(range)) {
+                          setWeeklyHours((wh) => ({
+                            ...wh,
+                            [key]: [...(wh[key] ?? []), range],
+                          }));
+                        } else if (range) {
+                          toast.error("형식: HH:MM-HH:MM");
+                        }
+                      }}
+                    >
+                      <Plus className="mr-1 h-3 w-3" />
+                      추가
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+            <div className="flex justify-end pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={savingHours}
+                onClick={async () => {
+                  setSavingHours(true);
+                  try {
+                    await consultationsAPI.updateWeeklyHours({ weekly_hours: weeklyHours });
+                    toast.success("주간 시간이 저장되었습니다");
+                  } catch {
+                    toast.error("저장에 실패했습니다");
+                  } finally {
+                    setSavingHours(false);
+                  }
+                }}
+              >
+                {savingHours ? "저장 중..." : "주간 시간 저장"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Blocked Slots */}
+        <Card>
+          <CardHeader>
+            <CardTitle>차단 슬롯</CardTitle>
+            <CardDescription>특정 날짜/시간에 상담을 차단합니다</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {blockedSlots.length > 0 && (
+              <div className="space-y-2">
+                {blockedSlots.map((slot) => (
+                  <div
+                    key={slot.id}
+                    className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50/50 px-4 py-2"
+                  >
+                    <div>
+                      <p className="text-sm font-medium">{slot.date}</p>
+                      <p className="text-xs text-slate-500">
+                        {slot.start_time} - {slot.end_time}
+                        {slot.reason && ` (${slot.reason})`}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-500 hover:text-red-600"
+                      onClick={async () => {
+                        try {
+                          await consultationsAPI.removeBlockedSlot(slot.id);
+                          setBlockedSlots((s) => s.filter((b) => b.id !== slot.id));
+                          toast.success("차단 슬롯이 삭제되었습니다");
+                        } catch {
+                          toast.error("삭제에 실패했습니다");
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <Separator />
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>날짜</Label>
+                <Input
+                  type="date"
+                  value={newBlock.date}
+                  onChange={(e) => setNewBlock((b) => ({ ...b, date: e.target.value }))}
+                  className="mt-1.5"
+                />
+              </div>
+              <div>
+                <Label>사유</Label>
+                <Input
+                  value={newBlock.reason}
+                  onChange={(e) => setNewBlock((b) => ({ ...b, reason: e.target.value }))}
+                  placeholder="예: 공휴일"
+                  className="mt-1.5"
+                />
+              </div>
+              <div>
+                <Label>시작</Label>
+                <Input
+                  type="time"
+                  value={newBlock.start_time}
+                  onChange={(e) => setNewBlock((b) => ({ ...b, start_time: e.target.value }))}
+                  className="mt-1.5"
+                />
+              </div>
+              <div>
+                <Label>종료</Label>
+                <Input
+                  type="time"
+                  value={newBlock.end_time}
+                  onChange={(e) => setNewBlock((b) => ({ ...b, end_time: e.target.value }))}
+                  className="mt-1.5"
+                />
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!newBlock.date}
+              onClick={async () => {
+                if (!newBlock.date) return;
+                try {
+                  const { data } = await consultationsAPI.addBlockedSlot({
+                    date: newBlock.date,
+                    start_time: newBlock.start_time,
+                    end_time: newBlock.end_time,
+                    reason: newBlock.reason || undefined,
+                  });
+                  setBlockedSlots((s) => [...s, data]);
+                  setNewBlock({ date: "", start_time: "09:00", end_time: "18:00", reason: "" });
+                  toast.success("차단 슬롯이 추가되었습니다");
+                } catch {
+                  toast.error("추가에 실패했습니다");
+                }
+              }}
+            >
+              <Plus className="mr-1 h-4 w-4" />
+              차단 슬롯 추가
+            </Button>
           </CardContent>
         </Card>
 

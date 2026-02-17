@@ -13,6 +13,12 @@ export const consultationsAPI = {
   enrolled: (params?: Record<string, unknown>) => apiClient.get("/consultations/enrolled", { params }),
   settings: () => apiClient.get("/consultations/settings"),
   updateSettings: (data: Record<string, unknown>) => apiClient.put("/consultations/settings", data),
+  updateWeeklyHours: (data: { weekly_hours: Record<string, string[]> }) =>
+    apiClient.put("/consultations/weekly-hours", data),
+  addBlockedSlot: (data: { date: string; start_time: string; end_time: string; reason?: string }) =>
+    apiClient.post("/consultations/blocked-slots", data),
+  removeBlockedSlot: (slotId: number) =>
+    apiClient.delete(`/consultations/blocked-slots/${slotId}`),
   checkSlug: (slug: string) => apiClient.get(`/consultations/check-slug/${slug}`),
   publicForm: (slug: string) => apiClient.get(`/consultations/public/${slug}`),
   publicSubmit: (slug: string, data: Record<string, unknown>) => apiClient.post(`/consultations/public/${slug}`, data),

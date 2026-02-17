@@ -21,12 +21,35 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, Calendar } from "lucide-react";
 
+interface AcademyEvent {
+  id: number;
+  title: string;
+  description?: string;
+  start_date: string;
+  end_date?: string;
+  type: string;
+}
+
+const EVENT_TYPES = [
+  { value: "holiday", label: "휴원", color: "bg-red-50 text-red-600" },
+  { value: "event", label: "행사", color: "bg-blue-50 text-blue-600" },
+  { value: "test", label: "시험", color: "bg-amber-50 text-amber-600" },
+  { value: "other", label: "기타", color: "bg-slate-100 text-slate-600" },
+];
+
 export default function EventsPage() {
-  const [events, setEvents] = useState<any[]>([]);
+  const [events, setEvents] = useState<AcademyEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState({
@@ -67,13 +90,6 @@ export default function EventsPage() {
     } catch {
       toast.error("등록에 실패했습니다");
     }
-  };
-
-  const typeLabels: Record<string, string> = {
-    holiday: "휴원",
-    event: "행사",
-    test: "시험",
-    other: "기타",
   };
 
   return (
@@ -121,6 +137,24 @@ export default function EventsPage() {
                     onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
                     className="mt-1.5"
                   />
+                </div>
+                <div>
+                  <Label>유형</Label>
+                  <Select
+                    value={form.type}
+                    onValueChange={(v) => setForm((p) => ({ ...p, type: v }))}
+                  >
+                    <SelectTrigger className="mt-1.5">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EVENT_TYPES.map((et) => (
+                        <SelectItem key={et.value} value={et.value}>
+                          {et.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -181,7 +215,12 @@ export default function EventsPage() {
                     </p>
                   </div>
                 </div>
-                <Badge variant="secondary">{typeLabels[evt.type] || evt.type}</Badge>
+                <Badge
+                  variant="secondary"
+                  className={EVENT_TYPES.find((et) => et.value === evt.type)?.color ?? ""}
+                >
+                  {EVENT_TYPES.find((et) => et.value === evt.type)?.label ?? evt.type}
+                </Badge>
               </CardContent>
             </Card>
           ))}
