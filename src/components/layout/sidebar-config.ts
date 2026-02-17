@@ -22,6 +22,7 @@ import {
   Settings,
   Shield,
   Smartphone,
+  TableProperties,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -78,6 +79,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       { label: "운동관리", href: "/training/exercises", icon: Dumbbell, permission: "training" },
       { label: "프리셋", href: "/training/presets", icon: Package, permission: "training" },
       { label: "월간테스트", href: "/training/tests", icon: Trophy, permission: "training" },
+      { label: "배점표", href: "/training/score-tables", icon: TableProperties, permission: "training" },
       { label: "반배정", href: "/training/assignments", icon: UsersRound, permission: "training" },
       { label: "통계", href: "/training/stats", icon: BarChart3, permission: "training" },
     ],

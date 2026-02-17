@@ -2,14 +2,17 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Plus, Search, ArrowUpCircle } from "lucide-react";
+import { Plus, Search, ArrowUpCircle, CalendarCog } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -105,6 +108,13 @@ export default function StudentsPage() {
   const [promoteLoading, setPromoteLoading] = useState(false);
   const [promoteExecuting, setPromoteExecuting] = useState(false);
 
+  // Bulk class-day change (M3)
+  const [showBulkDayDialog, setShowBulkDayDialog] = useState(false);
+  const [selectedStudentIds, setSelectedStudentIds] = useState<Set<number>>(new Set());
+  const [bulkDays, setBulkDays] = useState<number[]>([]);
+  const [bulkEffectiveDate, setBulkEffectiveDate] = useState("");
+  const [bulkDaySubmitting, setBulkDaySubmitting] = useState(false);
+
   const fetchStudents = useCallback(async () => {
     setLoading(true);
     try {
@@ -195,6 +205,59 @@ export default function StudentsPage() {
     }
   };
 
+  // Bulk class-day change handler
+  const handleBulkDayChange = async () => {
+    if (selectedStudentIds.size === 0 || bulkDays.length === 0) return;
+    setBulkDaySubmitting(true);
+    try {
+      let successCount = 0;
+      for (const sid of selectedStudentIds) {
+        try {
+          if (bulkEffectiveDate) {
+            // Schedule future change
+            await studentsAPI.update(sid, {
+              class_days_next: bulkDays,
+              class_days_effective_from: bulkEffectiveDate,
+            } as Partial<Student>);
+          } else {
+            // Immediate change
+            await studentsAPI.update(sid, { class_days: bulkDays } as Partial<Student>);
+          }
+          successCount++;
+        } catch {
+          // continue with others
+        }
+      }
+      toast.success(`${successCount}명의 수업요일이 변경되었습니다`);
+      setShowBulkDayDialog(false);
+      setSelectedStudentIds(new Set());
+      setBulkDays([]);
+      setBulkEffectiveDate("");
+      fetchStudents();
+    } catch {
+      toast.error("일괄 변경에 실패했습니다");
+    } finally {
+      setBulkDaySubmitting(false);
+    }
+  };
+
+  const toggleStudentSelection = (id: number) => {
+    setSelectedStudentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllStudents = () => {
+    if (selectedStudentIds.size === students.length) {
+      setSelectedStudentIds(new Set());
+    } else {
+      setSelectedStudentIds(new Set(students.map((s) => s.id)));
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
   const statCards = [
@@ -234,6 +297,24 @@ export default function StudentsPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (selectedStudentIds.size === 0) {
+                toast.error("먼저 학생을 선택해주세요");
+                return;
+              }
+              setShowBulkDayDialog(true);
+            }}
+          >
+            <CalendarCog className="mr-1 h-4 w-4" />
+            요일 일괄변경
+            {selectedStudentIds.size > 0 && (
+              <Badge variant="secondary" className="ml-1">
+                {selectedStudentIds.size}
+              </Badge>
+            )}
+          </Button>
           <Button variant="outline" onClick={handlePromotePreview}>
             <ArrowUpCircle className="mr-1 h-4 w-4" />
             진급
@@ -297,6 +378,12 @@ export default function StudentsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={students.length > 0 && selectedStudentIds.size === students.length}
+                      onCheckedChange={toggleAllStudents}
+                    />
+                  </TableHead>
                   <TableHead>이름</TableHead>
                   <TableHead>상태</TableHead>
                   <TableHead>구분</TableHead>
@@ -312,7 +399,7 @@ export default function StudentsPage() {
                 {students.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={9}
+                      colSpan={10}
                       className="py-12 text-center text-slate-400"
                     >
                       {search
@@ -323,6 +410,12 @@ export default function StudentsPage() {
                 ) : (
                   students.map((s) => (
                     <TableRow key={s.id}>
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedStudentIds.has(s.id)}
+                          onCheckedChange={() => toggleStudentSelection(s.id)}
+                        />
+                      </TableCell>
                       <TableCell>
                         <Link
                           href={`/students/${s.id}`}
@@ -395,6 +488,69 @@ export default function StudentsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Bulk Class-Day Change Dialog (M3) */}
+      <Dialog open={showBulkDayDialog} onOpenChange={setShowBulkDayDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>요일반 일괄 변경</DialogTitle>
+            <DialogDescription>
+              선택된 {selectedStudentIds.size}명의 수업요일을 변경합니다
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label className="mb-2 block">새 수업요일</Label>
+              <div className="flex gap-1">
+                {DAY_LABELS.map((label, idx) => (
+                  <Button
+                    key={idx}
+                    variant={bulkDays.includes(idx) ? "default" : "outline"}
+                    size="sm"
+                    className="h-9 w-9 p-0"
+                    onClick={() => {
+                      setBulkDays((prev) =>
+                        prev.includes(idx)
+                          ? prev.filter((d) => d !== idx)
+                          : [...prev, idx].sort()
+                      );
+                    }}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+              {bulkDays.length > 0 && (
+                <p className="mt-1 text-xs text-slate-500">
+                  선택: {bulkDays.map((d) => DAY_LABELS[d]).join(", ")}
+                </p>
+              )}
+            </div>
+            <div>
+              <Label className="mb-2 block">적용일 (예약)</Label>
+              <Input
+                type="date"
+                value={bulkEffectiveDate}
+                onChange={(e) => setBulkEffectiveDate(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                비워두면 즉시 적용됩니다
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkDayDialog(false)}>
+              취소
+            </Button>
+            <Button
+              onClick={handleBulkDayChange}
+              disabled={bulkDays.length === 0 || bulkDaySubmitting}
+            >
+              {bulkDaySubmitting ? "변경 중..." : `${selectedStudentIds.size}명 변경`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Promotion Dialog */}
       <Dialog open={showPromoteDialog} onOpenChange={setShowPromoteDialog}>

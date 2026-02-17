@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ import { studentsAPI } from "@/lib/api/students";
 import { settingsAPI } from "@/lib/api/admin";
 import { formatKRW } from "@/lib/format";
 import { toast } from "sonner";
+import { Calculator } from "lucide-react";
 import { STUDENT_TYPE_LABELS, type Student } from "@/lib/types/student";
 
 const PAYMENT_TYPE_OPTIONS = [
@@ -58,6 +59,59 @@ export default function PaymentNewPage() {
 
   // Calculated final amount
   const finalAmount = baseAmount - discountAmount + additionalAmount;
+
+  // Prorated calculation (M10)
+  const [showProrated, setShowProrated] = useState(false);
+  const [proratedPreview, setProratedPreview] = useState<{
+    total_days: number;
+    remaining_days: number;
+    daily_rate: number;
+    prorated_amount: number;
+  } | null>(null);
+  const [proratedLoading, setProratedLoading] = useState(false);
+
+  const enrollmentDate = selectedStudent?.enrollment_date;
+
+  // Check if mid-month enrollment
+  const isMidMonth = useMemo(() => {
+    if (!enrollmentDate || !yearMonth) return false;
+    const enrollDay = new Date(enrollmentDate).getDate();
+    const enrollYM = enrollmentDate.slice(0, 7);
+    return enrollYM === yearMonth && enrollDay > 1;
+  }, [enrollmentDate, yearMonth]);
+
+  const fetchProratedPreview = useCallback(async () => {
+    if (!selectedStudent || !yearMonth) return;
+    setProratedLoading(true);
+    try {
+      const { data } = await paymentsAPI.prepaidPreview({
+        student_id: selectedStudent.id,
+        year_month: yearMonth,
+        base_amount: baseAmount,
+      });
+      setProratedPreview(data);
+    } catch {
+      // If API doesn't support this, calculate locally
+      const enrollDay = enrollmentDate ? new Date(enrollmentDate).getDate() : 1;
+      const [y, m] = yearMonth.split("-").map(Number);
+      const totalDays = new Date(y, m, 0).getDate();
+      const remainingDays = totalDays - enrollDay + 1;
+      const dailyRate = Math.round(baseAmount / totalDays);
+      const proratedAmount = Math.round((baseAmount * remainingDays) / totalDays);
+      setProratedPreview({ total_days: totalDays, remaining_days: remainingDays, daily_rate: dailyRate, prorated_amount: proratedAmount });
+    } finally {
+      setProratedLoading(false);
+    }
+  }, [selectedStudent, yearMonth, baseAmount, enrollmentDate]);
+
+  const applyProrated = () => {
+    if (proratedPreview) {
+      setBaseAmount(proratedPreview.prorated_amount);
+      setDiscountAmount(0);
+      setShowProrated(false);
+      toast.success("일할 계산 금액이 적용되었습니다");
+    }
+  };
 
   // Fetch settings for payment_due_day
   useEffect(() => {
@@ -315,6 +369,75 @@ export default function PaymentNewPage() {
                 </div>
               </div>
             </div>
+
+            {/* Prorated calculation preview (M10) */}
+            {selectedStudent && (
+              <div className="rounded-md border border-blue-100 bg-blue-50/50 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Calculator className="h-4 w-4 text-blue-600" />
+                    <span className="text-sm font-medium text-blue-900">일할 계산</span>
+                  </div>
+                  {isMidMonth && (
+                    <Badge variant="secondary" className="bg-amber-50 text-amber-600">
+                      중간 등록
+                    </Badge>
+                  )}
+                </div>
+                {isMidMonth && (
+                  <p className="mt-1 text-xs text-blue-700">
+                    등록일({enrollmentDate})이 월 중간이므로 일할 계산을 적용할 수 있습니다
+                  </p>
+                )}
+                <div className="mt-2 flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setShowProrated(true);
+                      fetchProratedPreview();
+                    }}
+                  >
+                    일할 계산 미리보기
+                  </Button>
+                </div>
+                {showProrated && (
+                  <div className="mt-3 space-y-2 rounded-md bg-white p-3">
+                    {proratedLoading ? (
+                      <div className="flex justify-center py-3">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                      </div>
+                    ) : proratedPreview ? (
+                      <>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div className="text-slate-500">해당월 총 일수</div>
+                          <div className="text-right font-medium">{proratedPreview.total_days}일</div>
+                          <div className="text-slate-500">수업 일수</div>
+                          <div className="text-right font-medium">{proratedPreview.remaining_days}일</div>
+                          <div className="text-slate-500">일일 요금</div>
+                          <div className="text-right font-medium">{formatKRW(proratedPreview.daily_rate)}</div>
+                          <div className="border-t pt-1 font-medium text-slate-900">일할 계산 금액</div>
+                          <div className="border-t pt-1 text-right text-lg font-bold text-blue-600">
+                            {formatKRW(proratedPreview.prorated_amount)}
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="mt-2 w-full"
+                          onClick={applyProrated}
+                        >
+                          이 금액 적용
+                        </Button>
+                      </>
+                    ) : (
+                      <p className="text-center text-xs text-slate-400">계산할 수 없습니다</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Due date */}
             <div className="space-y-2">
