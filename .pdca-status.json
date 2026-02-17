@@ -1,0 +1,11 @@
+{
+  "cycle-8": {
+    "phase": "archived",
+    "matchRate": 83.7,
+    "frontendOnlyRate": 96.3,
+    "iterationCount": 1,
+    "startedAt": "2026-02-17T10:30:00Z",
+    "archivedAt": "2026-02-17T12:00:00Z",
+    "archivedTo": "docs/archive/2026-02/cycle-8/"
+  }
+}
