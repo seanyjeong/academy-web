@@ -2,11 +2,19 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, ArrowUpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { toast } from "sonner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -86,6 +94,17 @@ export default function StudentsPage() {
     total: 0,
   });
 
+  // Promotion
+  interface PromotionEntry {
+    student_id: number;
+    from_grade: string;
+    to_grade: string;
+  }
+  const [showPromoteDialog, setShowPromoteDialog] = useState(false);
+  const [promotions, setPromotions] = useState<PromotionEntry[]>([]);
+  const [promoteLoading, setPromoteLoading] = useState(false);
+  const [promoteExecuting, setPromoteExecuting] = useState(false);
+
   const fetchStudents = useCallback(async () => {
     setLoading(true);
     try {
@@ -146,6 +165,36 @@ export default function StudentsPage() {
     }
   }, [loading, fetchCounts]);
 
+  // Promotion: preview
+  const handlePromotePreview = async () => {
+    setPromoteLoading(true);
+    setShowPromoteDialog(true);
+    try {
+      const { data } = await studentsAPI.autoPromote({ dry_run: true });
+      setPromotions(data.promotions ?? []);
+    } catch {
+      toast.error("진급 미리보기에 실패했습니다");
+      setPromotions([]);
+    } finally {
+      setPromoteLoading(false);
+    }
+  };
+
+  // Promotion: execute
+  const handlePromoteExecute = async () => {
+    setPromoteExecuting(true);
+    try {
+      const { data } = await studentsAPI.autoPromote({ dry_run: false });
+      toast.success(`${data.promoted_count}명의 학생이 진급되었습니다`);
+      setShowPromoteDialog(false);
+      fetchStudents();
+    } catch {
+      toast.error("진급 처리에 실패했습니다");
+    } finally {
+      setPromoteExecuting(false);
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
   const statCards = [
@@ -184,12 +233,18 @@ export default function StudentsPage() {
             전체 {total}명의 학생을 관리합니다
           </p>
         </div>
-        <Button asChild>
-          <Link href="/students/new">
-            <Plus className="h-4 w-4" />
-            학생 등록
-          </Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handlePromotePreview}>
+            <ArrowUpCircle className="mr-1 h-4 w-4" />
+            진급
+          </Button>
+          <Button asChild>
+            <Link href="/students/new">
+              <Plus className="h-4 w-4" />
+              학생 등록
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Stat Summary Cards */}
@@ -340,6 +395,77 @@ export default function StudentsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Promotion Dialog */}
+      <Dialog open={showPromoteDialog} onOpenChange={setShowPromoteDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>자동 진급</DialogTitle>
+          </DialogHeader>
+          {promoteLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+            </div>
+          ) : promotions.length === 0 ? (
+            <div className="py-8 text-center">
+              <p className="text-sm text-slate-500">
+                진급 대상 학생이 없습니다
+              </p>
+              <p className="mt-1 text-xs text-slate-400">
+                고1→고2, 고2→고3, 고3→N수 대상만 포함됩니다
+              </p>
+            </div>
+          ) : (
+            <div>
+              <p className="mb-3 text-sm text-slate-600">
+                총 <span className="font-bold text-blue-600">{promotions.length}명</span>의 학생이 진급 대상입니다
+              </p>
+              <div className="max-h-[300px] overflow-y-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>학생 ID</TableHead>
+                      <TableHead>현재</TableHead>
+                      <TableHead>→</TableHead>
+                      <TableHead>변경</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {promotions.map((p) => (
+                      <TableRow key={p.student_id}>
+                        <TableCell>#{p.student_id}</TableCell>
+                        <TableCell>{p.from_grade}</TableCell>
+                        <TableCell className="text-slate-400">→</TableCell>
+                        <TableCell className="font-medium text-blue-600">
+                          {p.to_grade}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowPromoteDialog(false)}
+            >
+              취소
+            </Button>
+            {promotions.length > 0 && (
+              <Button
+                onClick={handlePromoteExecute}
+                disabled={promoteExecuting}
+              >
+                {promoteExecuting
+                  ? "진급 중..."
+                  : `${promotions.length}명 진급 실행`}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

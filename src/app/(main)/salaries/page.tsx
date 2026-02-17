@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { salariesAPI } from "@/lib/api/payments";
 import { formatKRW } from "@/lib/format";
 import { toast } from "sonner";
@@ -39,14 +40,33 @@ interface Salary {
   id: number;
   instructor_id: number;
   instructor_name?: string;
+  salary_type?: string;
   year_month: string;
   base_salary: number;
+  hourly_rate?: number;
+  per_class_rate?: number;
+  class_count?: number;
+  work_hours?: number;
   overtime_pay: number;
   incentive: number;
   deductions: number;
   total_salary: number;
   payment_status: string;
 }
+
+const SALARY_TYPE_LABELS: Record<string, string> = {
+  hourly: "시급",
+  per_class: "건당",
+  monthly: "월급",
+  mixed: "혼합",
+};
+
+const SALARY_TYPE_COLORS: Record<string, string> = {
+  hourly: "bg-blue-50 text-blue-600",
+  per_class: "bg-amber-50 text-amber-600",
+  monthly: "bg-green-50 text-green-600",
+  mixed: "bg-purple-50 text-purple-600",
+};
 
 function getMonthOptions() {
   const now = new Date();
@@ -183,6 +203,7 @@ export default function SalariesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>강사명</TableHead>
+                  <TableHead>급여유형</TableHead>
                   <TableHead className="text-right">기본급</TableHead>
                   <TableHead className="text-right">초과근무</TableHead>
                   <TableHead className="text-right">수당</TableHead>
@@ -200,6 +221,14 @@ export default function SalariesPage() {
                       >
                         {s.instructor_name ?? `강사 #${s.instructor_id}`}
                       </Link>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="secondary"
+                        className={SALARY_TYPE_COLORS[s.salary_type ?? "monthly"] ?? ""}
+                      >
+                        {SALARY_TYPE_LABELS[s.salary_type ?? "monthly"] ?? s.salary_type ?? "-"}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-right">
                       {formatKRW(s.base_salary)}

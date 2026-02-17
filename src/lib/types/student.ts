@@ -18,12 +18,15 @@ export interface Student {
   gender?: Gender;
   student_type: StudentType;
   grade?: string;
+  age?: number;
   admission_type: AdmissionType;
   phone?: string;
   parent_phone?: string;
   school?: string;
   address?: string;
   class_days?: number[] | string;
+  class_days_next?: number[] | string | null;
+  class_days_effective_from?: string | null;
   weekly_count?: number;
   monthly_tuition: number;
   discount_rate: number;
@@ -44,6 +47,7 @@ export interface Student {
   enrollment_date?: string;
   created_at: string;
   updated_at?: string;
+  deleted_at?: string | null;
 }
 
 export interface StudentFormData {

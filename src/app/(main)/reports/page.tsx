@@ -18,11 +18,34 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { toast } from "sonner";
 import { Users, TrendingUp, CalendarCheck, Download, BarChart3 } from "lucide-react";
+
+interface DashboardData {
+  total_students?: number;
+  monthly_income?: number;
+  attendance_rate?: number;
+  new_consultations?: number;
+  monthly_trend?: { month: string; amount: number }[];
+  max_monthly?: number;
+  student_stats?: Record<string, number>;
+}
+
+const EXPORT_TYPES = [
+  { value: "financial", label: "재무 리포트" },
+  { value: "attendance", label: "출결 리포트" },
+  { value: "students", label: "학생 목록" },
+];
 
 export default function ReportsPage() {
   const [period, setPeriod] = useState("month");
-  const [dashboard, setDashboard] = useState<any>(null);
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
@@ -42,16 +65,19 @@ export default function ReportsPage() {
   }, [fetchData]);
 
   const handleExport = async (type: string) => {
+    const now = new Date();
+    const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     try {
-      const { data } = await reportsAPI.export(type, { period });
+      const { data } = await reportsAPI.export(type, { year_month: yearMonth });
       const url = window.URL.createObjectURL(new Blob([data]));
       const link = document.createElement("a");
       link.href = url;
-      link.download = `report-${type}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      link.download = `report-${type}-${yearMonth}.csv`;
       link.click();
       window.URL.revokeObjectURL(url);
+      toast.success("다운로드가 시작되었습니다");
     } catch {
-      // Export failed
+      toast.error("내보내기에 실패했습니다");
     }
   };
 
@@ -111,10 +137,24 @@ export default function ReportsPage() {
               <SelectItem value="year">연간</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={() => handleExport("summary")}>
-            <Download className="mr-1.5 h-4 w-4" />
-            엑셀 다운로드
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Download className="mr-1.5 h-4 w-4" />
+                내보내기
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {EXPORT_TYPES.map((et) => (
+                <DropdownMenuItem
+                  key={et.value}
+                  onClick={() => handleExport(et.value)}
+                >
+                  {et.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -149,7 +189,7 @@ export default function ReportsPage() {
               <CardContent>
                 {dashboard?.monthly_trend ? (
                   <div className="space-y-3">
-                    {dashboard.monthly_trend.map((m: any, i: number) => (
+                    {dashboard.monthly_trend.map((m: { month: string; amount: number }, i: number) => (
                       <div key={i} className="flex items-center gap-3">
                         <span className="w-16 text-sm text-slate-500">{m.month}</span>
                         <div className="flex-1">

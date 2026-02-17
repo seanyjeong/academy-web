@@ -179,6 +179,7 @@ export default function StudentDetailPage() {
   const [resumeOpen, setResumeOpen] = useState(false);
   const [graduateOpen, setGraduateOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawReason, setWithdrawReason] = useState("");
   const [enrollOpen, setEnrollOpen] = useState(false);
 
   // Pause form
@@ -396,11 +397,14 @@ export default function StudentDetailPage() {
       toast.error("휴원 시작일을 입력하세요");
       return;
     }
+    if (!pauseForm.rest_end_date) {
+      toast.error("휴원 종료일을 입력하세요");
+      return;
+    }
     try {
-      const { data } = await studentsAPI.update(id, {
-        status: "paused",
+      const { data } = await studentsAPI.processRest(id, {
         rest_start_date: pauseForm.rest_start_date,
-        rest_end_date: pauseForm.rest_end_date || undefined,
+        rest_end_date: pauseForm.rest_end_date,
         rest_reason: pauseForm.rest_reason || undefined,
       });
       setStudent(data);
@@ -415,17 +419,14 @@ export default function StudentDetailPage() {
 
   async function handleResume() {
     try {
-      const { data } = await studentsAPI.update(id, {
-        status: "active",
-        rest_start_date: undefined,
-        rest_end_date: undefined,
-      } as Partial<Student>);
+      const { data } = await studentsAPI.resume(id);
       setStudent(data);
       populateForm(data);
       setResumeOpen(false);
       toast.success("복귀 처리되었습니다");
-    } catch {
-      toast.error("복귀 처리에 실패했습니다");
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(msg || "복귀 처리에 실패했습니다");
     }
   }
 
@@ -443,10 +444,13 @@ export default function StudentDetailPage() {
 
   async function handleWithdraw() {
     try {
-      const { data } = await studentsAPI.update(id, { status: "withdrawn" });
+      const { data } = await studentsAPI.withdraw(id, {
+        reason: withdrawReason || undefined,
+      });
       setStudent(data);
       populateForm(data);
       setWithdrawOpen(false);
+      setWithdrawReason("");
       toast.success("퇴원 처리되었습니다");
     } catch {
       toast.error("퇴원 처리에 실패했습니다");
@@ -1438,14 +1442,29 @@ export default function StudentDetailPage() {
                           <DialogHeader>
                             <DialogTitle>퇴원 처리</DialogTitle>
                             <DialogDescription>
-                              {student.name} 학생을 퇴원 처리하시겠습니까? 이
-                              작업은 되돌릴 수 있습니다.
+                              {student.name} 학생을 퇴원 처리하시겠습니까?
                             </DialogDescription>
                           </DialogHeader>
+                          <div className="space-y-3 py-2">
+                            <div>
+                              <Label htmlFor="withdraw-reason">퇴원 사유</Label>
+                              <textarea
+                                id="withdraw-reason"
+                                value={withdrawReason}
+                                onChange={(e) => setWithdrawReason(e.target.value)}
+                                className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                rows={3}
+                                placeholder="퇴원 사유를 입력하세요 (선택)"
+                              />
+                            </div>
+                          </div>
                           <DialogFooter>
                             <Button
                               variant="outline"
-                              onClick={() => setWithdrawOpen(false)}
+                              onClick={() => {
+                                setWithdrawOpen(false);
+                                setWithdrawReason("");
+                              }}
                             >
                               취소
                             </Button>

@@ -22,11 +22,18 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 
+interface PublicAcademyInfo {
+  academy_name?: string;
+  description?: string;
+  duration_minutes?: number;
+  fields?: Record<string, boolean>;
+}
+
 export default function PublicConsultationFormPage() {
   const params = useParams();
   const router = useRouter();
   const slug = params.slug as string;
-  const [academy, setAcademy] = useState<any>(null);
+  const [academy, setAcademy] = useState<PublicAcademyInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({

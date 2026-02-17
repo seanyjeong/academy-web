@@ -37,7 +37,16 @@ export default function ConsultationSettingsPage() {
     const load = async () => {
       try {
         const { data } = await consultationsAPI.settings();
-        if (data) setSettings((prev) => ({ ...prev, ...data }));
+        if (data) {
+          setSettings((prev) => ({
+            ...prev,
+            slug: data.slug ?? "",
+            enabled: data.is_active ?? true,
+            fields: data.fields ?? prev.fields,
+            notify_on_new: data.notify_on_new ?? true,
+            notify_email: data.notify_email ?? "",
+          }));
+        }
       } catch {
         // Use defaults
       } finally {
@@ -50,7 +59,13 @@ export default function ConsultationSettingsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await consultationsAPI.updateSettings(settings);
+      await consultationsAPI.updateSettings({
+        slug: settings.slug,
+        is_active: settings.enabled,
+        fields: settings.fields,
+        notify_on_new: settings.notify_on_new,
+        notify_email: settings.notify_email,
+      });
       toast.success("설정이 저장되었습니다");
     } catch {
       toast.error("저장에 실패했습니다");
