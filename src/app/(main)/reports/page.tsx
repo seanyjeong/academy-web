@@ -41,6 +41,8 @@ const EXPORT_TYPES = [
   { value: "financial", label: "재무 리포트" },
   { value: "attendance", label: "출결 리포트" },
   { value: "students", label: "학생 목록" },
+  { value: "consultations", label: "상담 내역" },
+  { value: "salaries", label: "급여 내역" },
 ];
 
 export default function ReportsPage() {

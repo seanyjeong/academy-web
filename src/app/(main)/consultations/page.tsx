@@ -157,6 +157,9 @@ export default function ConsultationsPage() {
 
   // Convert dialog state
   const [convertTarget, setConvertTarget] = useState<Consultation | null>(null);
+  const [convertMode, setConvertMode] = useState<"new" | "link">("new");
+  const [convertAdmission, setConvertAdmission] = useState("regular");
+  const [linkStudentId, setLinkStudentId] = useState("");
 
   // Calendar tab state
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
@@ -302,11 +305,23 @@ export default function ConsultationsPage() {
   async function handleConvert() {
     if (!convertTarget) return;
     try {
-      await consultationsAPI.convert(convertTarget.id);
-      toast.success("학생으로 전환되었습니다");
+      if (convertMode === "link" && linkStudentId) {
+        await consultationsAPI.linkStudent(convertTarget.id, {
+          student_id: Number(linkStudentId),
+        });
+        toast.success("기존 학생과 연결되었습니다");
+      } else {
+        await consultationsAPI.convert(convertTarget.id, {
+          admission_type: convertAdmission,
+        });
+        toast.success("학생으로 전환되었습니다");
+      }
       setConvertTarget(null);
+      setConvertMode("new");
+      setConvertAdmission("regular");
+      setLinkStudentId("");
       fetchData();
-      router.push("/students");
+      if (convertMode === "new") router.push("/students");
     } catch {
       toast.error("학생 전환에 실패했습니다");
     }
@@ -908,7 +923,14 @@ export default function ConsultationsPage() {
       {/* ========== Convert Dialog ========== */}
       <Dialog
         open={!!convertTarget}
-        onOpenChange={(open) => !open && setConvertTarget(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConvertTarget(null);
+            setConvertMode("new");
+            setConvertAdmission("regular");
+            setLinkStudentId("");
+          }
+        }}
       >
         <DialogContent>
           <DialogHeader>
@@ -938,13 +960,70 @@ export default function ConsultationsPage() {
               </div>
             )}
           </div>
+
+          {/* Conversion mode */}
+          <div className="space-y-3">
+            <Label>전환 방법</Label>
+            <div className="flex gap-2">
+              <Button
+                variant={convertMode === "new" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setConvertMode("new")}
+              >
+                신규 등록
+              </Button>
+              <Button
+                variant={convertMode === "link" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setConvertMode("link")}
+              >
+                기존 학생 연결
+              </Button>
+            </div>
+
+            {convertMode === "new" && (
+              <div className="space-y-2">
+                <Label>입학 유형</Label>
+                <Select
+                  value={convertAdmission}
+                  onValueChange={setConvertAdmission}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="regular">정규 등록</SelectItem>
+                    <SelectItem value="trial">체험 등록</SelectItem>
+                    <SelectItem value="transfer">전학</SelectItem>
+                    <SelectItem value="readmission">재등록</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {convertMode === "link" && (
+              <div className="space-y-2">
+                <Label>학생 ID</Label>
+                <Input
+                  type="number"
+                  placeholder="연결할 학생 ID 입력"
+                  value={linkStudentId}
+                  onChange={(e) => setLinkStudentId(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setConvertTarget(null)}>
               취소
             </Button>
-            <Button onClick={handleConvert}>
+            <Button
+              onClick={handleConvert}
+              disabled={convertMode === "link" && !linkStudentId}
+            >
               <UserPlus className="h-4 w-4" />
-              학생으로 등록
+              {convertMode === "new" ? "학생으로 등록" : "학생 연결"}
             </Button>
           </DialogFooter>
         </DialogContent>
