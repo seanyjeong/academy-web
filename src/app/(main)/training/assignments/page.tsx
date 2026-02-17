@@ -44,6 +44,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { assignmentsAPI } from "@/lib/api/training";
+import { studentsAPI } from "@/lib/api/students";
 import type { DailyAssignment, ClassInstructor } from "@/lib/types/training";
 import { TIME_SLOT_MAP } from "@/lib/types/training";
 
@@ -82,6 +83,9 @@ export default function AssignmentsPage() {
     time_slot: "" as string,
     class_id: "" as string,
   });
+
+  // Student name map
+  const [studentNames, setStudentNames] = useState<Record<number, string>>({});
 
   // Bulk assignment
   const [showBulkDialog, setShowBulkDialog] = useState(false);
@@ -131,10 +135,26 @@ export default function AssignmentsPage() {
     }
   }, [date, tab]);
 
+  // Fetch student name map (once on mount)
+  const fetchStudentNames = useCallback(async () => {
+    try {
+      const { data } = await studentsAPI.list({ limit: 500 });
+      const list = data?.items ?? (Array.isArray(data) ? data : []);
+      const map: Record<number, string> = {};
+      for (const s of list) {
+        map[s.id] = s.name;
+      }
+      setStudentNames(map);
+    } catch {
+      // silent
+    }
+  }, []);
+
   useEffect(() => {
     fetchAssignments();
     fetchInstructors();
-  }, [fetchAssignments, fetchInstructors]);
+    fetchStudentNames();
+  }, [fetchAssignments, fetchInstructors, fetchStudentNames]);
 
   // Stats
   const stats = useMemo(() => {
@@ -393,8 +413,7 @@ export default function AssignmentsPage() {
                           variant={inst.role === "main" ? "default" : "secondary"}
                         >
                           {inst.class_id}반 -{" "}
-                          {inst.role === "main" ? "메인" : "서브"} (ID:{" "}
-                          {inst.instructor_id})
+                          {inst.role === "main" ? "메인" : "서브"} ({studentNames[inst.instructor_id] ?? `#${inst.instructor_id}`})
                         </Badge>
                       ))}
                   </div>
@@ -425,7 +444,7 @@ export default function AssignmentsPage() {
                             {idx + 1}
                           </TableCell>
                           <TableCell className="font-medium">
-                            ID: {assignment.student_id}
+                            {studentNames[assignment.student_id] ?? `학생 #${assignment.student_id}`}
                           </TableCell>
                           <TableCell>
                             <Select
