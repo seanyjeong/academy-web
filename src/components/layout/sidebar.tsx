@@ -21,7 +21,7 @@ export function Sidebar() {
   const { branches, activeBranchId, isMultiBranch, switchBranch } = useAcademy();
 
   return (
-    <aside className="flex h-screen w-[248px] flex-col border-r bg-[#FAFBFC]">
+    <aside className="flex h-screen w-[248px] flex-col border-r bg-[#FAFBFC] shadow-lg lg:shadow-none">
       {/* Logo */}
       <div className="flex h-14 items-center gap-2 border-b px-5">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white">
