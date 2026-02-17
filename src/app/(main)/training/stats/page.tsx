@@ -7,11 +7,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Activity,
+  TrendingUp,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -44,11 +48,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { trainingStatsAPI, recordTypesAPI } from "@/lib/api/training";
+import { trainingStatsAPI, recordTypesAPI, recordsAPI } from "@/lib/api/training";
 import type {
   RecordAverage,
   LeaderboardEntry,
   RecordType,
+  StudentRecord,
 } from "@/lib/types/training";
 import { DIRECTION_MAP } from "@/lib/types/training";
 
@@ -93,6 +98,13 @@ export default function StatsPage() {
   const [averages, setAverages] = useState<RecordAverage[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Student trend
+  const [studentSearch, setStudentSearch] = useState("");
+  const [studentId, setStudentId] = useState<number | null>(null);
+  const [studentName, setStudentName] = useState("");
+  const [studentRecords, setStudentRecords] = useState<StudentRecord[]>([]);
+  const [studentTrendLoading, setStudentTrendLoading] = useState(false);
 
   const ymLabel = useMemo(() => {
     const { year, month } = parseYearMonth(yearMonth);
@@ -179,6 +191,60 @@ export default function StatsPage() {
     selectedTypeId === "all"
       ? "전체"
       : (rtMap.get(Number(selectedTypeId))?.name ?? "");
+
+  // Student trend search
+  const handleStudentSearch = async () => {
+    if (!studentSearch.trim()) return;
+    setStudentTrendLoading(true);
+    try {
+      // Search by student name via leaderboard (which includes student_name)
+      const lbRes = await trainingStatsAPI.leaderboard({ limit: 100 });
+      const entries = Array.isArray(lbRes.data) ? (lbRes.data as LeaderboardEntry[]) : [];
+      const match = entries.find(
+        (e) => e.student_name?.includes(studentSearch.trim())
+      );
+      if (!match) {
+        toast.error("해당 학생의 기록을 찾을 수 없습니다");
+        setStudentTrendLoading(false);
+        return;
+      }
+      setStudentId(match.student_id);
+      setStudentName(match.student_name);
+      const recRes = await recordsAPI.list({
+        student_id: match.student_id,
+        limit: 200,
+      });
+      const recs = Array.isArray(recRes.data)
+        ? recRes.data
+        : recRes.data?.items ?? [];
+      setStudentRecords(recs as StudentRecord[]);
+    } catch {
+      toast.error("학생 기록 조회에 실패했습니다");
+    } finally {
+      setStudentTrendLoading(false);
+    }
+  };
+
+  const studentTrendData = useMemo(() => {
+    if (studentRecords.length === 0) return [];
+    const dateMap = new Map<string, Record<string, number>>();
+    for (const rec of studentRecords) {
+      const date = rec.measured_at.slice(0, 10);
+      if (!dateMap.has(date)) dateMap.set(date, {});
+      const rt = rtMap.get(rec.record_type_id);
+      if (rt) dateMap.get(date)![rt.name] = rec.value;
+    }
+    return Array.from(dateMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-30)
+      .map(([date, values]) => ({ date: date.slice(5), ...values }));
+  }, [studentRecords, rtMap]);
+
+  const studentActiveTypes = useMemo(() => {
+    if (studentRecords.length === 0) return [];
+    const typeIds = new Set(studentRecords.map((r) => r.record_type_id));
+    return recordTypes.filter((rt) => typeIds.has(rt.id));
+  }, [studentRecords, recordTypes]);
 
   if (loading && averages.length === 0) {
     return (
@@ -395,6 +461,74 @@ export default function StatsPage() {
                 ))}
               </TableBody>
             </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Student Trend */}
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <TrendingUp className="h-4 w-4 text-green-500" />
+            학생별 기록 추이
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4 flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                placeholder="학생 이름으로 검색"
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleStudentSearch()}
+                className="pl-9"
+              />
+            </div>
+            <Button
+              onClick={handleStudentSearch}
+              disabled={studentTrendLoading || !studentSearch.trim()}
+            >
+              {studentTrendLoading ? "검색 중..." : "조회"}
+            </Button>
+          </div>
+
+          {studentId && studentName && (
+            <div className="mb-3">
+              <Badge variant="secondary" className="text-sm">
+                {studentName}
+              </Badge>
+            </div>
+          )}
+
+          {studentTrendData.length > 1 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={studentTrendData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip />
+                {studentActiveTypes.map((rt, i) => (
+                  <Line
+                    key={rt.id}
+                    type="monotone"
+                    dataKey={rt.name}
+                    stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    connectNulls
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          ) : studentId ? (
+            <div className="py-8 text-center text-sm text-slate-400">
+              충분한 기록이 없어 추이를 표시할 수 없습니다
+            </div>
+          ) : (
+            <div className="py-8 text-center text-sm text-slate-400">
+              학생 이름을 검색하면 기록 추이를 확인할 수 있습니다
+            </div>
           )}
         </CardContent>
       </Card>

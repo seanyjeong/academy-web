@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, Pencil, Trash2, ExternalLink } from "lucide-react";
+import { ArrowLeft, Pencil, Trash2, ExternalLink, TrendingUp, Activity } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,8 +36,24 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from "recharts";
 import { studentsAPI } from "@/lib/api/students";
 import { attendanceAPI } from "@/lib/api/attendance";
+import { recordsAPI, recordTypesAPI } from "@/lib/api/training";
+import type { RecordType, StudentRecord } from "@/lib/types/training";
 import apiClient from "@/lib/api/client";
 import { formatKRW, formatDate } from "@/lib/format";
 import {
@@ -199,6 +215,11 @@ export default function StudentDetailPage() {
   const [consultations, setConsultations] = useState<ConsultationRecord[]>([]);
   const [consultationsLoading, setConsultationsLoading] = useState(false);
 
+  // Training data
+  const [trainingRecords, setTrainingRecords] = useState<StudentRecord[]>([]);
+  const [trainingTypes, setTrainingTypes] = useState<RecordType[]>([]);
+  const [trainingLoading, setTrainingLoading] = useState(false);
+
   // Edit form
   const [form, setForm] = useState({
     name: "",
@@ -323,6 +344,69 @@ export default function StudentDetailPage() {
       setConsultationsLoading(false);
     }
   }
+
+  // Load training records
+  async function loadTraining() {
+    if (trainingRecords.length > 0) return;
+    setTrainingLoading(true);
+    try {
+      const [recRes, typeRes] = await Promise.all([
+        recordsAPI.list({ student_id: id, limit: 200 }),
+        recordTypesAPI.list(),
+      ]);
+      const recs = Array.isArray(recRes.data)
+        ? recRes.data
+        : recRes.data?.items ?? [];
+      setTrainingRecords(recs as StudentRecord[]);
+      const types = (Array.isArray(typeRes.data) ? typeRes.data : []) as RecordType[];
+      setTrainingTypes(types.filter((t) => t.is_active));
+    } catch {
+      // may not be available
+    } finally {
+      setTrainingLoading(false);
+    }
+  }
+
+  // Training chart data
+  const radarData = useMemo(() => {
+    if (trainingTypes.length === 0 || trainingRecords.length === 0) return [];
+    return trainingTypes.map((rt) => {
+      const records = trainingRecords
+        .filter((r) => r.record_type_id === rt.id)
+        .sort((a, b) => b.measured_at.localeCompare(a.measured_at));
+      const latest = records[0]?.value ?? 0;
+      const best =
+        rt.direction === "lower"
+          ? Math.min(...records.map((r) => r.value))
+          : Math.max(...records.map((r) => r.value));
+      return {
+        type: rt.name,
+        latest: Math.round(latest * 100) / 100,
+        best: records.length > 0 ? Math.round(best * 100) / 100 : 0,
+        count: records.length,
+      };
+    }).filter((d) => d.count > 0);
+  }, [trainingTypes, trainingRecords]);
+
+  const trendData = useMemo(() => {
+    if (trainingRecords.length === 0) return [];
+    // Group by date, pick latest value per type per date
+    const dateMap = new Map<string, Record<string, number>>();
+    for (const rec of trainingRecords) {
+      const date = rec.measured_at.slice(0, 10);
+      if (!dateMap.has(date)) dateMap.set(date, {});
+      const typeRec = trainingTypes.find((t) => t.id === rec.record_type_id);
+      if (typeRec) {
+        dateMap.get(date)![typeRec.name] = rec.value;
+      }
+    }
+    return Array.from(dateMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-20) // last 20 days
+      .map(([date, values]) => ({ date: date.slice(5), ...values }));
+  }, [trainingRecords, trainingTypes]);
+
+  const TREND_COLORS = ["#2563eb", "#16a34a", "#ea580c", "#9333ea", "#0891b2", "#dc2626"];
 
   // --- Form helpers ---
 
@@ -616,6 +700,7 @@ export default function StudentDetailPage() {
         defaultValue="info"
         onValueChange={(v) => {
           if (v === "payments") loadPayments();
+          if (v === "training") loadTraining();
           if (v === "consultations") loadConsultations();
         }}
       >
@@ -1606,24 +1691,147 @@ export default function StudentDetailPage() {
 
         {/* ==================== TRAINING TAB ==================== */}
         <TabsContent value="training">
-          <Card className="mt-4">
-            <CardHeader>
-              <CardTitle>훈련기록</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="py-8 text-center">
+          {trainingLoading ? (
+            <div className="mt-4 flex h-32 items-center justify-center">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+            </div>
+          ) : radarData.length === 0 ? (
+            <Card className="mt-4">
+              <CardContent className="py-8 text-center">
                 <p className="mb-4 text-sm text-slate-400">
-                  훈련 기록은 훈련기록 페이지에서 확인할 수 있습니다
+                  훈련 기록이 없습니다
                 </p>
                 <Button variant="outline" asChild>
                   <Link href={`/training/records?student=${id}`}>
                     <ExternalLink className="mr-2 h-4 w-4" />
-                    훈련기록 페이지에서 확인
+                    훈련기록 페이지에서 입력
                   </Link>
                 </Button>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="mt-4 space-y-4">
+              {/* Radar Chart */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Activity className="h-4 w-4 text-blue-500" />
+                    종목별 최근 기록
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <RadarChart data={radarData}>
+                      <PolarGrid />
+                      <PolarAngleAxis dataKey="type" tick={{ fontSize: 12 }} />
+                      <PolarRadiusAxis tick={{ fontSize: 10 }} />
+                      <Radar
+                        name="최근"
+                        dataKey="latest"
+                        stroke="#2563eb"
+                        fill="#2563eb"
+                        fillOpacity={0.3}
+                      />
+                      <Radar
+                        name="최고"
+                        dataKey="best"
+                        stroke="#16a34a"
+                        fill="#16a34a"
+                        fillOpacity={0.15}
+                      />
+                      <Tooltip />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                  <div className="mt-2 flex justify-center gap-6 text-xs text-slate-500">
+                    <span className="flex items-center gap-1">
+                      <span className="inline-block h-3 w-3 rounded bg-blue-500" />
+                      최근 기록
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="inline-block h-3 w-3 rounded bg-green-500" />
+                      최고 기록
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Trend Chart */}
+              {trendData.length > 1 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <TrendingUp className="h-4 w-4 text-green-500" />
+                      기록 추이 (최근 20일)
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={280}>
+                      <LineChart data={trendData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                        <YAxis tick={{ fontSize: 11 }} />
+                        <Tooltip />
+                        {trainingTypes
+                          .filter((rt) => trainingRecords.some((r) => r.record_type_id === rt.id))
+                          .map((rt, i) => (
+                            <Line
+                              key={rt.id}
+                              type="monotone"
+                              dataKey={rt.name}
+                              stroke={TREND_COLORS[i % TREND_COLORS.length]}
+                              strokeWidth={2}
+                              dot={{ r: 3 }}
+                              connectNulls
+                            />
+                          ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Summary Table */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">종목별 요약</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>종목</TableHead>
+                        <TableHead className="text-right">최근</TableHead>
+                        <TableHead className="text-right">최고</TableHead>
+                        <TableHead className="text-right">측정횟수</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {radarData.map((d) => (
+                        <TableRow key={d.type}>
+                          <TableCell className="font-medium">{d.type}</TableCell>
+                          <TableCell className="text-right">{d.latest}</TableCell>
+                          <TableCell className="text-right font-semibold text-blue-600">
+                            {d.best}
+                          </TableCell>
+                          <TableCell className="text-right text-slate-500">
+                            {d.count}회
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  <div className="mt-4 text-center">
+                    <Button variant="outline" size="sm" asChild>
+                      <Link href={`/training/records?student=${id}`}>
+                        <ExternalLink className="mr-2 h-4 w-4" />
+                        전체 기록 보기
+                      </Link>
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </TabsContent>
 
         {/* ==================== CONSULTATIONS TAB ==================== */}
