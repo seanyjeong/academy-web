@@ -20,23 +20,24 @@ import { paymentsAPI } from "@/lib/api/payments";
 import { toast } from "sonner";
 
 const paymentSchema = z.object({
-  month: z.string().min(1, "수납월을 입력하세요"),
-  amount: z.number({ message: "금액을 입력하세요" }).min(1, "금액은 1원 이상이어야 합니다"),
+  year_month: z.string().min(1, "수납월을 입력하세요"),
+  final_amount: z.number({ message: "금액을 입력하세요" }).min(1, "금액은 1원 이상이어야 합니다"),
   paid_amount: z.number().min(0).optional(),
-  method: z.string().min(1, "수납방법을 선택하세요"),
-  memo: z.string().optional(),
+  payment_method: z.string().min(1, "수납방법을 선택하세요"),
+  notes: z.string().optional(),
 });
 
 type PaymentEditForm = z.infer<typeof paymentSchema>;
 
 interface PaymentDetail {
   id: number;
-  student_name: string;
-  month: string;
-  amount: number;
+  student_name?: string;
+  student_id: number;
+  year_month: string;
+  final_amount: number;
   paid_amount: number;
-  method: string | null;
-  memo: string | null;
+  payment_method: string | null;
+  notes: string | null;
 }
 
 export default function PaymentEditPage() {
@@ -62,11 +63,11 @@ export default function PaymentEditPage() {
       const { data } = await paymentsAPI.get(Number(id));
       setPayment(data);
       reset({
-        month: data.month,
-        amount: data.amount,
+        year_month: data.year_month,
+        final_amount: data.final_amount,
         paid_amount: data.paid_amount,
-        method: data.method ?? "",
-        memo: data.memo ?? "",
+        payment_method: data.payment_method ?? "",
+        notes: data.notes ?? "",
       });
     } catch {
       toast.error("수납 정보를 불러올 수 없습니다");
@@ -116,7 +117,7 @@ export default function PaymentEditPage() {
       <div className="mb-6">
         <h1 className="text-xl font-bold text-slate-900">수납 수정</h1>
         <p className="text-sm text-slate-500">
-          {payment.student_name}님의 수납 정보를 수정합니다
+          {payment.student_name ?? `학생 #${payment.student_id}`}님의 수납 정보를 수정합니다
         </p>
       </div>
 
@@ -129,28 +130,28 @@ export default function PaymentEditPage() {
             {/* Student name (read-only) */}
             <div className="space-y-2">
               <Label>학생</Label>
-              <Input value={payment.student_name} disabled />
+              <Input value={payment.student_name ?? `학생 #${payment.student_id}`} disabled />
             </div>
 
             {/* Month */}
             <div className="space-y-2">
-              <Label htmlFor="month">수납월</Label>
-              <Input id="month" type="month" {...register("month")} />
-              {errors.month && (
-                <p className="text-sm text-red-500">{errors.month.message}</p>
+              <Label htmlFor="year_month">수납월</Label>
+              <Input id="year_month" type="month" {...register("year_month")} />
+              {errors.year_month && (
+                <p className="text-sm text-red-500">{errors.year_month.message}</p>
               )}
             </div>
 
             {/* Amount */}
             <div className="space-y-2">
-              <Label htmlFor="amount">금액 (원)</Label>
+              <Label htmlFor="final_amount">금액 (원)</Label>
               <Input
-                id="amount"
+                id="final_amount"
                 type="number"
-                {...register("amount", { valueAsNumber: true })}
+                {...register("final_amount", { valueAsNumber: true })}
               />
-              {errors.amount && (
-                <p className="text-sm text-red-500">{errors.amount.message}</p>
+              {errors.final_amount && (
+                <p className="text-sm text-red-500">{errors.final_amount.message}</p>
               )}
             </div>
 
@@ -168,9 +169,9 @@ export default function PaymentEditPage() {
             <div className="space-y-2">
               <Label>수납방법</Label>
               <Select
-                value={watch("method")}
+                value={watch("payment_method")}
                 onValueChange={(v) =>
-                  setValue("method", v, { shouldValidate: true })
+                  setValue("payment_method", v, { shouldValidate: true })
                 }
               >
                 <SelectTrigger className="w-full">
@@ -179,18 +180,19 @@ export default function PaymentEditPage() {
                 <SelectContent>
                   <SelectItem value="cash">현금</SelectItem>
                   <SelectItem value="card">카드</SelectItem>
-                  <SelectItem value="transfer">계좌이체</SelectItem>
+                  <SelectItem value="account">계좌이체</SelectItem>
+                  <SelectItem value="other">기타</SelectItem>
                 </SelectContent>
               </Select>
-              {errors.method && (
-                <p className="text-sm text-red-500">{errors.method.message}</p>
+              {errors.payment_method && (
+                <p className="text-sm text-red-500">{errors.payment_method.message}</p>
               )}
             </div>
 
             {/* Memo */}
             <div className="space-y-2">
-              <Label htmlFor="memo">메모</Label>
-              <Input id="memo" placeholder="메모 (선택)" {...register("memo")} />
+              <Label htmlFor="notes">메모</Label>
+              <Input id="notes" placeholder="메모 (선택)" {...register("notes")} />
             </div>
 
             <div className="flex gap-3 pt-2">

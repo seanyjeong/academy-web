@@ -217,10 +217,8 @@ export default function PaymentNewPage() {
       await paymentsAPI.create({
         student_id: selectedStudent.id,
         year_month: yearMonth,
-        payment_type: paymentType,
         base_amount: baseAmount,
         discount_amount: discountAmount,
-        additional_amount: additionalAmount,
         final_amount: finalAmount,
         due_date: dueDate || null,
         notes: notes || null,

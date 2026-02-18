@@ -23,6 +23,14 @@ export const paymentsAPI = {
     apiClient.post("/payments/prepaid-pay", data),
   prepaid: (studentId: number) =>
     apiClient.get(`/payments/prepaid/${studentId}`),
+  studentHistory: (studentId: number) =>
+    apiClient.get(`/payments/student/${studentId}/history`),
+  creditsSummary: () =>
+    apiClient.get("/payments/credits/summary"),
+  statsSummary: (params?: Record<string, unknown>) =>
+    apiClient.get("/payments/stats/summary", { params }),
+  unpaidToday: () =>
+    apiClient.get("/payments/unpaid-today"),
 };
 
 export const salariesAPI = {

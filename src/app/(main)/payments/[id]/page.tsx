@@ -24,7 +24,7 @@ import { paymentsAPI } from "@/lib/api/payments";
 import { formatKRW, formatDate } from "@/lib/format";
 import { toast } from "sonner";
 
-type PaymentStatus = "paid" | "unpaid" | "partial";
+type PaymentStatus = "paid" | "unpaid" | "partial" | "overdue";
 
 interface PaymentDetail {
   id: number;
@@ -49,12 +49,14 @@ const STATUS_CONFIG: Record<
   paid: { label: "완납", className: "bg-green-50 text-green-600" },
   unpaid: { label: "미납", className: "bg-red-50 text-red-600" },
   partial: { label: "부분납", className: "bg-amber-50 text-amber-600" },
+  overdue: { label: "연체", className: "bg-red-50 text-red-700" },
 };
 
 const METHOD_LABELS: Record<string, string> = {
   cash: "현금",
   card: "카드",
-  transfer: "계좌이체",
+  account: "계좌이체",
+  other: "기타",
 };
 
 export default function PaymentDetailPage() {

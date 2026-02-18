@@ -36,17 +36,15 @@ import { studentsAPI } from "@/lib/api/students";
 import { formatKRW, formatDate } from "@/lib/format";
 import { toast } from "sonner";
 
-type PaymentStatus = "paid" | "unpaid" | "partial";
+type PaymentStatus = "paid" | "unpaid" | "partial" | "overdue";
 
 interface Payment {
   id: number;
   student_id: number;
   student_name?: string;
   year_month: string;
-  payment_type: string;
   base_amount: number;
   discount_amount: number;
-  additional_amount: number;
   final_amount: number;
   paid_amount: number;
   payment_status: PaymentStatus;
@@ -60,20 +58,7 @@ const STATUS_CONFIG: Record<PaymentStatus, { label: string; className: string }>
   paid: { label: "완납", className: "bg-green-50 text-green-600" },
   unpaid: { label: "미납", className: "bg-red-50 text-red-600" },
   partial: { label: "부분납", className: "bg-amber-50 text-amber-600" },
-};
-
-const PAYMENT_TYPE_LABELS: Record<string, string> = {
-  monthly: "월납",
-  season: "시즌",
-  material: "교재",
-  other: "기타",
-};
-
-const PAYMENT_TYPE_COLORS: Record<string, string> = {
-  monthly: "bg-blue-50 text-blue-600",
-  season: "bg-purple-50 text-purple-600",
-  material: "bg-green-50 text-green-600",
-  other: "bg-slate-100 text-slate-500",
+  overdue: { label: "연체", className: "bg-red-50 text-red-700" },
 };
 
 const METHOD_OPTIONS = [
@@ -141,7 +126,7 @@ export default function PaymentsPage() {
     try {
       const params: Record<string, unknown> = {};
       if (month) params.year_month = month;
-      if (statusFilter !== "all") params.status = statusFilter;
+      if (statusFilter !== "all") params.payment_status = statusFilter;
       const { data } = await paymentsAPI.list(params);
       setPayments(Array.isArray(data) ? data : data.items ?? []);
     } catch {
@@ -174,8 +159,8 @@ export default function PaymentsPage() {
     setPaySubmitting(true);
     try {
       await paymentsAPI.pay(payTarget.id, {
-        amount: payAmount,
-        method: payMethod,
+        paid_amount: payAmount,
+        payment_method: payMethod,
       });
       toast.success("수납 처리가 완료되었습니다");
       setPayDialogOpen(false);
@@ -291,7 +276,6 @@ export default function PaymentsPage() {
                   <TableRow>
                     <TableHead>학생명</TableHead>
                     <TableHead>수납월</TableHead>
-                    <TableHead>유형</TableHead>
                     <TableHead className="text-right">기본금액</TableHead>
                     <TableHead className="text-right">할인</TableHead>
                     <TableHead className="text-right">최종금액</TableHead>
@@ -304,8 +288,6 @@ export default function PaymentsPage() {
                 <TableBody>
                   {payments.map((p) => {
                     const statusCfg = STATUS_CONFIG[p.payment_status] ?? STATUS_CONFIG.unpaid;
-                    const typeCfg = PAYMENT_TYPE_COLORS[p.payment_type] ?? PAYMENT_TYPE_COLORS.other;
-                    const typeLabel = PAYMENT_TYPE_LABELS[p.payment_type] ?? p.payment_type;
                     return (
                       <TableRow key={p.id}>
                         <TableCell>
@@ -317,11 +299,6 @@ export default function PaymentsPage() {
                           </Link>
                         </TableCell>
                         <TableCell>{p.year_month}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={typeCfg}>
-                            {typeLabel}
-                          </Badge>
-                        </TableCell>
                         <TableCell className="text-right">{formatKRW(p.base_amount)}</TableCell>
                         <TableCell className="text-right">
                           {p.discount_amount > 0 ? (

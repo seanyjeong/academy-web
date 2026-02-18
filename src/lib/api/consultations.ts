@@ -9,28 +9,26 @@ export interface ConsultationListParams {
 }
 
 export interface ConsultationCreateData {
-  name: string;
-  phone?: string;
-  consultation_type?: string;
-  scheduled_date?: string;
-  scheduled_time?: string;
+  student_name: string;
+  student_phone?: string;
+  parent_name?: string;
+  parent_phone?: string;
+  date: string;
+  time: string;
+  source?: string;
   notes?: string;
 }
 
 export interface ConsultationUpdateData {
-  name?: string;
-  phone?: string;
-  consultation_type?: string;
-  scheduled_date?: string;
-  scheduled_time?: string;
-  notes?: string;
   status?: string;
+  notes?: string;
+  linked_student_id?: number;
+  date?: string;
+  time?: string;
 }
 
 export interface ConductData {
-  result: string;
   notes?: string;
-  next_date?: string;
 }
 
 export interface LinkStudentData {
@@ -65,14 +63,14 @@ export interface ConsultationSettingsData {
 }
 
 export interface PublicSubmitData {
-  name: string;
-  phone: string;
-  preferred_date?: string;
-  preferred_time?: string;
+  student_name: string;
+  student_phone?: string;
+  parent_name?: string;
+  parent_phone?: string;
+  date: string;
+  time: string;
+  source?: string;
   notes?: string;
-  school?: string;
-  grade?: string;
-  sport_interest?: string;
 }
 
 export const consultationsAPI = {
@@ -89,11 +87,11 @@ export const consultationsAPI = {
   settings: () => apiClient.get("/consultations/settings"),
   updateSettings: (data: ConsultationSettingsData) => apiClient.put("/consultations/settings", data),
   updateWeeklyHours: (data: { weekly_hours: Record<string, string[]> }) =>
-    apiClient.put("/consultations/weekly-hours", data),
+    apiClient.put("/consultations/settings/weekly-hours", data),
   addBlockedSlot: (data: { date: string; start_time: string; end_time: string; reason?: string }) =>
-    apiClient.post("/consultations/blocked-slots", data),
+    apiClient.post("/consultations/settings/blocked-slots", data),
   removeBlockedSlot: (slotId: number) =>
-    apiClient.delete(`/consultations/blocked-slots/${slotId}`),
+    apiClient.delete(`/consultations/settings/blocked-slots/${slotId}`),
   checkSlug: (slug: string) => apiClient.get(`/consultations/check-slug/${slug}`),
   publicForm: (slug: string) => apiClient.get(`/consultations/public/${slug}`),
   publicSubmit: (slug: string, data: PublicSubmitData) => apiClient.post(`/consultations/public/${slug}`, data),

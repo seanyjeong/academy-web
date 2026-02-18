@@ -28,14 +28,12 @@ export default function NewInquiryPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
-    name: "",
-    phone: "",
-    school: "",
-    grade: "",
-    sport_interest: "",
-    memo: "",
-    consultation_date: "",
+    student_name: "",
+    student_phone: "",
+    date: "",
+    time: "",
     source: "phone",
+    notes: "",
   });
 
   const update = (field: string, value: string) =>
@@ -43,8 +41,8 @@ export default function NewInquiryPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name || !form.phone) {
-      toast.error("이름과 연락처는 필수입니다");
+    if (!form.student_name || !form.date || !form.time) {
+      toast.error("이름, 날짜, 시간은 필수입니다");
       return;
     }
     setLoading(true);
@@ -82,100 +80,74 @@ export default function NewInquiryPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="name">이름 *</Label>
+                <Label htmlFor="student_name">학생 이름 *</Label>
                 <Input
-                  id="name"
-                  value={form.name}
-                  onChange={(e) => update("name", e.target.value)}
+                  id="student_name"
+                  value={form.student_name}
+                  onChange={(e) => update("student_name", e.target.value)}
                   className="mt-1.5"
                   required
                 />
               </div>
               <div>
-                <Label htmlFor="phone">연락처 *</Label>
+                <Label htmlFor="student_phone">연락처</Label>
                 <Input
-                  id="phone"
-                  value={form.phone}
-                  onChange={(e) => update("phone", e.target.value)}
+                  id="student_phone"
+                  value={form.student_phone}
+                  onChange={(e) => update("student_phone", e.target.value)}
                   placeholder="010-0000-0000"
                   className="mt-1.5"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="date">상담 예정일 *</Label>
+                <Input
+                  id="date"
+                  type="date"
+                  value={form.date}
+                  onChange={(e) => update("date", e.target.value)}
+                  className="mt-1.5"
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="time">시간 *</Label>
+                <Input
+                  id="time"
+                  type="time"
+                  value={form.time}
+                  onChange={(e) => update("time", e.target.value)}
+                  className="mt-1.5"
                   required
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="school">학교</Label>
-                <Input
-                  id="school"
-                  value={form.school}
-                  onChange={(e) => update("school", e.target.value)}
-                  className="mt-1.5"
-                />
-              </div>
-              <div>
-                <Label htmlFor="grade">학년</Label>
-                <Select value={form.grade} onValueChange={(v) => update("grade", v)}>
-                  <SelectTrigger className="mt-1.5">
-                    <SelectValue placeholder="선택" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {["중1", "중2", "중3", "고1", "고2", "고3"].map((g) => (
-                      <SelectItem key={g} value={g}>
-                        {g}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div>
+              <Label>유입 경로</Label>
+              <Select value={form.source} onValueChange={(v) => update("source", v)}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="phone">전화</SelectItem>
+                  <SelectItem value="visit">방문</SelectItem>
+                  <SelectItem value="online">온라인</SelectItem>
+                  <SelectItem value="referral">추천</SelectItem>
+                  <SelectItem value="other">기타</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div>
-              <Label htmlFor="sport_interest">관심 종목</Label>
-              <Input
-                id="sport_interest"
-                value={form.sport_interest}
-                onChange={(e) => update("sport_interest", e.target.value)}
-                placeholder="예: 체육교육, 스포츠과학"
-                className="mt-1.5"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="consultation_date">희망 상담일</Label>
-                <Input
-                  id="consultation_date"
-                  type="date"
-                  value={form.consultation_date}
-                  onChange={(e) => update("consultation_date", e.target.value)}
-                  className="mt-1.5"
-                />
-              </div>
-              <div>
-                <Label>유입 경로</Label>
-                <Select value={form.source} onValueChange={(v) => update("source", v)}>
-                  <SelectTrigger className="mt-1.5">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="phone">전화</SelectItem>
-                    <SelectItem value="visit">방문</SelectItem>
-                    <SelectItem value="online">온라인</SelectItem>
-                    <SelectItem value="referral">추천</SelectItem>
-                    <SelectItem value="other">기타</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="memo">메모</Label>
+              <Label htmlFor="notes">메모</Label>
               <textarea
-                id="memo"
-                value={form.memo}
-                onChange={(e) => update("memo", e.target.value)}
+                id="notes"
+                value={form.notes}
+                onChange={(e) => update("notes", e.target.value)}
                 className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 rows={4}
                 placeholder="추가 메모 사항"

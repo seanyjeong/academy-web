@@ -52,36 +52,27 @@ import { formatDate } from "@/lib/format";
 
 interface Consultation {
   id: number;
-  name: string;
   student_name?: string;
-  phone?: string;
-  consultation_type?: string;
-  scheduled_date?: string;
-  scheduled_time?: string;
-  consultation_date?: string;
+  student_phone?: string;
+  parent_name?: string;
+  parent_phone?: string;
+  date?: string;
+  time?: string;
   status: string;
-  counselor?: string;
-  memo?: string;
+  source?: string;
   notes?: string;
-  result?: string;
-  next_date?: string;
   linked_student_id?: number;
-  linked_student_name?: string;
-  converted_at?: string;
   created_at: string;
-}
-
-interface CalendarEntry {
-  date: string;
-  consultations: Consultation[];
+  updated_at?: string;
 }
 
 interface EnrolledEntry {
   id: number;
-  name: string;
-  converted_at?: string;
+  student_name?: string;
+  status: string;
   linked_student_id?: number;
-  linked_student_name?: string;
+  date?: string;
+  created_at?: string;
 }
 
 interface ConsultationSettings {
@@ -126,11 +117,11 @@ function getCalendarDays(year: number, month: number): (number | null)[][] {
 }
 
 const INITIAL_FORM = {
-  name: "",
-  phone: "",
-  consultation_type: "visit",
-  scheduled_date: "",
-  scheduled_time: "",
+  student_name: "",
+  student_phone: "",
+  date: "",
+  time: "",
+  source: "visit",
   notes: "",
 };
 
@@ -150,9 +141,7 @@ export default function ConsultationsPage() {
   // Conduct dialog state
   const [conductTarget, setConductTarget] = useState<Consultation | null>(null);
   const [conductForm, setConductForm] = useState({
-    result: "",
     notes: "",
-    next_date: "",
   });
 
   // Convert dialog state
@@ -199,29 +188,29 @@ export default function ConsultationsPage() {
     fetchData();
   }, [fetchData]);
 
-  // Fetch calendar data
+  // Fetch calendar data - backend returns dict[date, Consultation[]]
   const fetchCalendar = useCallback(async () => {
     setCalendarLoading(true);
     try {
       const ym = `${calendarYear}-${String(calendarMonth).padStart(2, "0")}`;
       const { data } = await consultationsAPI.calendar({ year_month: ym });
-      const entries: CalendarEntry[] = Array.isArray(data) ? data : data.items ?? data.data ?? [];
-      const map: Record<string, Consultation[]> = {};
-      entries.forEach((e) => {
-        map[e.date] = e.consultations ?? [];
-      });
-      // Also handle flat consultation array format
-      if (entries.length > 0 && !entries[0].consultations) {
-        const flat = entries as unknown as Consultation[];
-        flat.forEach((c) => {
-          const d = c.scheduled_date ?? c.consultation_date ?? c.created_at?.slice(0, 10);
+      // Backend returns { "2026-02-01": [...], "2026-02-02": [...] }
+      if (data && typeof data === "object" && !Array.isArray(data)) {
+        setCalendarData(data as Record<string, Consultation[]>);
+      } else if (Array.isArray(data)) {
+        // Fallback: flat array of consultations
+        const map: Record<string, Consultation[]> = {};
+        (data as Consultation[]).forEach((c) => {
+          const d = c.date ?? c.created_at?.slice(0, 10);
           if (d) {
             if (!map[d]) map[d] = [];
             map[d].push(c);
           }
         });
+        setCalendarData(map);
+      } else {
+        setCalendarData({});
       }
-      setCalendarData(map);
     } catch {
       setCalendarData({});
     } finally {
@@ -288,13 +277,11 @@ export default function ConsultationsPage() {
     if (!conductTarget) return;
     try {
       await consultationsAPI.conduct(conductTarget.id, {
-        result: conductForm.result,
-        notes: conductForm.notes,
-        next_date: conductForm.next_date || undefined,
+        notes: conductForm.notes || undefined,
       });
       toast.success("상담 결과가 저장되었습니다");
       setConductTarget(null);
-      setConductForm({ result: "", notes: "", next_date: "" });
+      setConductForm({ notes: "" });
       fetchData();
     } catch {
       toast.error("상담 진행에 실패했습니다");
@@ -383,30 +370,30 @@ export default function ConsultationsPage() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>이름</Label>
+                  <Label>학생 이름</Label>
                   <Input
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="상담자 이름"
+                    value={form.student_name}
+                    onChange={(e) => setForm({ ...form, student_name: e.target.value })}
+                    placeholder="학생 이름"
                   />
                 </div>
                 <div className="space-y-2">
                   <Label>연락처</Label>
                   <Input
-                    value={form.phone}
+                    value={form.student_phone}
                     onChange={(e) =>
-                      setForm({ ...form, phone: e.target.value })
+                      setForm({ ...form, student_phone: e.target.value })
                     }
                     placeholder="010-0000-0000"
                   />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>상담 유형</Label>
+                <Label>유입 경로</Label>
                 <Select
-                  value={form.consultation_type}
+                  value={form.source}
                   onValueChange={(v) =>
-                    setForm({ ...form, consultation_type: v })
+                    setForm({ ...form, source: v })
                   }
                 >
                   <SelectTrigger className="w-full">
@@ -426,9 +413,9 @@ export default function ConsultationsPage() {
                   <Label>상담 예정일</Label>
                   <Input
                     type="date"
-                    value={form.scheduled_date}
+                    value={form.date}
                     onChange={(e) =>
-                      setForm({ ...form, scheduled_date: e.target.value })
+                      setForm({ ...form, date: e.target.value })
                     }
                   />
                 </div>
@@ -436,9 +423,9 @@ export default function ConsultationsPage() {
                   <Label>시간</Label>
                   <Input
                     type="time"
-                    value={form.scheduled_time}
+                    value={form.time}
                     onChange={(e) =>
-                      setForm({ ...form, scheduled_time: e.target.value })
+                      setForm({ ...form, time: e.target.value })
                     }
                   />
                 </div>
@@ -459,7 +446,7 @@ export default function ConsultationsPage() {
               <Button variant="outline" onClick={() => setCreateOpen(false)}>
                 취소
               </Button>
-              <Button onClick={handleCreate} disabled={!form.name}>
+              <Button onClick={handleCreate} disabled={!form.student_name || !form.date || !form.time}>
                 등록
               </Button>
             </DialogFooter>
@@ -507,12 +494,12 @@ export default function ConsultationsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>이름</TableHead>
+                  <TableHead>학생명</TableHead>
                   <TableHead>연락처</TableHead>
-                  <TableHead>상담일</TableHead>
-                  <TableHead>상담유형</TableHead>
+                  <TableHead>상담일시</TableHead>
+                  <TableHead>유입경로</TableHead>
                   <TableHead>상태</TableHead>
-                  <TableHead>담당자</TableHead>
+                  <TableHead>예약일</TableHead>
                   <TableHead className="w-[160px]">관리</TableHead>
                 </TableRow>
               </TableHeader>
@@ -541,34 +528,32 @@ export default function ConsultationsPage() {
                       label: c.status,
                       color: "bg-slate-100 text-slate-500",
                     };
-                    const typeInfo = CONSULTATION_TYPES[c.consultation_type ?? ""];
+                    const sourceInfo = CONSULTATION_TYPES[c.source ?? ""];
                     return (
                       <TableRow key={c.id}>
                         <TableCell className="font-medium">
-                          {c.student_name || c.name}
+                          {c.student_name ?? "-"}
                         </TableCell>
                         <TableCell className="text-slate-500">
-                          {c.phone ?? "-"}
+                          {c.student_phone ?? "-"}
                         </TableCell>
                         <TableCell className="text-slate-500">
-                          {c.scheduled_date
-                            ? formatDate(c.scheduled_date)
-                            : c.consultation_date
-                              ? formatDate(c.consultation_date)
-                              : formatDate(c.created_at)}
-                          {c.scheduled_time && (
+                          {c.date
+                            ? formatDate(c.date)
+                            : formatDate(c.created_at)}
+                          {c.time && (
                             <span className="ml-1 text-slate-400">
-                              {c.scheduled_time}
+                              {c.time}
                             </span>
                           )}
                         </TableCell>
                         <TableCell>
-                          {typeInfo ? (
+                          {sourceInfo ? (
                             <span className="text-sm text-slate-600">
-                              {typeInfo.label}
+                              {sourceInfo.label}
                             </span>
                           ) : (
-                            <span className="text-sm text-slate-400">-</span>
+                            <span className="text-sm text-slate-400">{c.source ?? "-"}</span>
                           )}
                         </TableCell>
                         <TableCell>
@@ -580,7 +565,7 @@ export default function ConsultationsPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-slate-500">
-                          {c.counselor ?? "-"}
+                          {c.date ?? "-"}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
@@ -593,9 +578,7 @@ export default function ConsultationsPage() {
                                 onClick={() => {
                                   setConductTarget(c);
                                   setConductForm({
-                                    result: "",
                                     notes: c.notes ?? "",
-                                    next_date: "",
                                   });
                                 }}
                               >
@@ -705,9 +688,9 @@ export default function ConsultationsPage() {
                                       <div
                                         key={ci}
                                         className={`truncate rounded px-1 py-0.5 text-[10px] leading-tight ${st?.color ?? "bg-slate-100 text-slate-500"}`}
-                                        title={`${c.student_name || c.name} - ${st?.label ?? c.status}`}
+                                        title={`${c.student_name ?? "-"} - ${st?.label ?? c.status}`}
                                       >
-                                        {c.student_name || c.name}
+                                        {c.student_name ?? "-"}
                                       </div>
                                     );
                                   })}
@@ -763,14 +746,14 @@ export default function ConsultationsPage() {
                 ) : (
                   enrolledList.map((e) => (
                     <TableRow key={e.id}>
-                      <TableCell className="font-medium">{e.name}</TableCell>
+                      <TableCell className="font-medium">{e.student_name ?? "-"}</TableCell>
                       <TableCell className="text-slate-500">
-                        {e.converted_at ? formatDate(e.converted_at) : "-"}
+                        {e.date ? formatDate(e.date) : e.created_at ? formatDate(e.created_at) : "-"}
                       </TableCell>
                       <TableCell>
-                        {e.linked_student_name ? (
+                        {e.linked_student_id ? (
                           <span className="text-blue-600">
-                            {e.linked_student_name}
+                            학생 #{e.linked_student_id}
                           </span>
                         ) : (
                           <span className="text-slate-400">-</span>
@@ -871,41 +854,19 @@ export default function ConsultationsPage() {
           <DialogHeader>
             <DialogTitle>상담 진행</DialogTitle>
             <DialogDescription>
-              {conductTarget?.student_name || conductTarget?.name}님 상담 결과를
-              기록합니다
+              {conductTarget?.student_name ?? "-"}님 상담을 완료 처리합니다
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>상담 결과</Label>
-              <Textarea
-                value={conductForm.result}
-                onChange={(e) =>
-                  setConductForm({ ...conductForm, result: e.target.value })
-                }
-                placeholder="상담 결과를 입력하세요"
-                rows={4}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>비고</Label>
+              <Label>상담 메모</Label>
               <Textarea
                 value={conductForm.notes}
                 onChange={(e) =>
                   setConductForm({ ...conductForm, notes: e.target.value })
                 }
-                placeholder="추가 메모"
-                rows={2}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>다음 상담일 (선택)</Label>
-              <Input
-                type="date"
-                value={conductForm.next_date}
-                onChange={(e) =>
-                  setConductForm({ ...conductForm, next_date: e.target.value })
-                }
+                placeholder="상담 내용 및 메모를 입력하세요"
+                rows={4}
               />
             </div>
           </div>
@@ -913,8 +874,8 @@ export default function ConsultationsPage() {
             <Button variant="outline" onClick={() => setConductTarget(null)}>
               취소
             </Button>
-            <Button onClick={handleConduct} disabled={!conductForm.result}>
-              저장
+            <Button onClick={handleConduct}>
+              상담 완료
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -936,29 +897,20 @@ export default function ConsultationsPage() {
           <DialogHeader>
             <DialogTitle>학생 전환</DialogTitle>
             <DialogDescription>
-              {convertTarget?.student_name || convertTarget?.name}님을 학생으로
-              등록합니다
+              {convertTarget?.student_name ?? "-"}님을 학생으로 등록합니다
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 rounded-md bg-slate-50 p-4 text-sm">
             <div className="flex justify-between">
               <span className="text-slate-500">이름</span>
               <span className="font-medium">
-                {convertTarget?.student_name || convertTarget?.name}
+                {convertTarget?.student_name ?? "-"}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">연락처</span>
-              <span>{convertTarget?.phone ?? "-"}</span>
+              <span>{convertTarget?.student_phone ?? "-"}</span>
             </div>
-            {convertTarget?.result && (
-              <div className="flex justify-between">
-                <span className="text-slate-500">상담 결과</span>
-                <span className="max-w-[200px] truncate">
-                  {convertTarget.result}
-                </span>
-              </div>
-            )}
           </div>
 
           {/* Conversion mode */}
