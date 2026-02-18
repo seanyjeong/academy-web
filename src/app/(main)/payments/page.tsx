@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { paymentsAPI } from "@/lib/api/payments";
+import { studentsAPI } from "@/lib/api/students";
 import { formatKRW, formatDate } from "@/lib/format";
 import { toast } from "sonner";
 
@@ -98,6 +99,7 @@ export default function PaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [month, setMonth] = useState(getCurrentMonth());
   const [statusFilter, setStatusFilter] = useState("all");
+  const [studentNames, setStudentNames] = useState<Record<number, string>>({});
 
   // Pay dialog state
   const [payDialogOpen, setPayDialogOpen] = useState(false);
@@ -110,6 +112,29 @@ export default function PaymentsPage() {
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkMonth, setBulkMonth] = useState(getNextMonth());
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
+
+  // Fetch student names once on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await studentsAPI.list({ limit: 1000 });
+        const list = Array.isArray(data) ? data : data.items ?? [];
+        const map: Record<number, string> = {};
+        for (const s of list) {
+          if (s.id && s.name) map[s.id] = s.name;
+        }
+        setStudentNames(map);
+      } catch {
+        // ignore
+      }
+    })();
+  }, []);
+
+  const getStudentName = useCallback(
+    (studentId: number, apiName?: string) =>
+      apiName || studentNames[studentId] || `학생 #${studentId}`,
+    [studentNames]
+  );
 
   const fetchPayments = useCallback(async () => {
     setLoading(true);
@@ -288,7 +313,7 @@ export default function PaymentsPage() {
                             href={`/students/${p.student_id}`}
                             className="font-medium text-blue-600 hover:underline"
                           >
-                            {p.student_name ?? `학생 #${p.student_id}`}
+                            {getStudentName(p.student_id, p.student_name)}
                           </Link>
                         </TableCell>
                         <TableCell>{p.year_month}</TableCell>
@@ -350,7 +375,7 @@ export default function PaymentsPage() {
                 <p>
                   <span className="text-slate-500">학생:</span>{" "}
                   <span className="font-medium">
-                    {payTarget.student_name ?? `학생 #${payTarget.student_id}`}
+                    {getStudentName(payTarget.student_id, payTarget.student_name)}
                   </span>
                 </p>
                 <p>

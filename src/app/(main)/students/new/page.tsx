@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { studentsAPI } from "@/lib/api/students";
+import { paymentsAPI } from "@/lib/api/payments";
 import type {
   StudentFormData,
   StudentType,
@@ -258,8 +259,31 @@ export default function NewStudentPage() {
 
     try {
       setSubmitting(true);
-      await studentsAPI.create(submitData);
-      toast.success("학생이 등록되었습니다");
+      const res = await studentsAPI.create(submitData);
+      const newStudent = res.data;
+
+      // Auto-create payment for current month if not trial and has tuition
+      if (!form.is_trial && finalTuition > 0 && newStudent?.id) {
+        try {
+          const now = new Date();
+          const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+          await paymentsAPI.create({
+            student_id: newStudent.id,
+            year_month: yearMonth,
+            payment_type: "monthly",
+            base_amount: form.monthly_tuition || 0,
+            discount_amount: (form.monthly_tuition || 0) - finalTuition,
+            final_amount: finalTuition,
+            payment_status: "unpaid",
+          });
+          toast.success("학생이 등록되고 수납이 자동 생성되었습니다");
+        } catch {
+          toast.success("학생이 등록되었습니다 (수납 자동 생성 실패 - 수동으로 생성해주세요)");
+        }
+      } else {
+        toast.success("학생이 등록되었습니다");
+      }
+
       router.push("/students");
     } catch {
       toast.error("학생 등록에 실패했습니다");
