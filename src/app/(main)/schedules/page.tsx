@@ -2,7 +2,18 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Plus, Clock, Users, CheckCircle2, XCircle, ClipboardList } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Clock,
+  Users,
+  CheckCircle2,
+  XCircle,
+  UserCheck,
+  Loader2,
+  CalendarPlus,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -11,10 +22,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -25,57 +33,58 @@ import {
 import { toast } from "sonner";
 import { schedulesAPI } from "@/lib/api/schedules";
 import { instructorsAPI } from "@/lib/api/instructors";
+import { studentsAPI } from "@/lib/api/students";
 import { DAY_LABELS, TIME_SLOT_LABELS } from "@/lib/types/student";
 import type { TimeSlot } from "@/lib/types/student";
 
-interface Schedule {
+// ── Types ──
+
+interface Student {
   id: number;
   name: string;
-  title?: string;
-  time_slot: string;
-  day_of_week: string | null;
-  days?: string[];
+  status: string;
+  class_days?: number[] | string;
+  time_slot?: string;
+  is_trial?: boolean;
+}
+
+interface ScheduleRecord {
+  id: number;
   class_date: string;
-  start_time?: string;
-  end_time?: string;
+  time_slot: string;
+  day_of_week?: string | null;
+  title?: string;
+  name?: string;
+  instructor_id?: number | null;
   instructor_name?: string;
-  instructor_id?: number;
-  student_count?: number;
   attendance_taken?: boolean;
   is_closed?: boolean;
-  close_reason?: string;
-  capacity?: number;
-  has_makeup?: boolean;
+  student_count?: number;
 }
 
-interface Instructor {
+interface InstructorOption {
   id: number;
   name: string;
-  work_days?: number[];
-  time_slot?: string;
+  salary_type?: string;
 }
 
-const TIME_SLOT_COLORS: Record<string, string> = {
-  morning: "bg-blue-500",
-  afternoon: "bg-green-500",
-  evening: "bg-orange-500",
+interface AttendanceRecord {
+  student_id: number;
+  student_name: string;
+  status: string | null;
+}
+
+// ── Constants ──
+
+const SLOT_ORDER: TimeSlot[] = ["morning", "afternoon", "evening"];
+
+const SLOT_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
+  morning: { bg: "bg-blue-50", text: "text-blue-700", dot: "bg-blue-500" },
+  afternoon: { bg: "bg-green-50", text: "text-green-700", dot: "bg-green-500" },
+  evening: { bg: "bg-orange-50", text: "text-orange-700", dot: "bg-orange-500" },
 };
 
-const TIME_SLOT_RING_COLORS: Record<string, string> = {
-  morning: "ring-blue-200 bg-blue-50 text-blue-700",
-  afternoon: "ring-green-200 bg-green-50 text-green-700",
-  evening: "ring-orange-200 bg-orange-50 text-orange-700",
-};
-
-const DAY_OF_WEEK_MAP: Record<string, number> = {
-  sun: 0,
-  mon: 1,
-  tue: 2,
-  wed: 3,
-  thu: 4,
-  fri: 5,
-  sat: 6,
-};
+// ── Helpers ──
 
 function getCalendarDays(year: number, month: number): (number | null)[][] {
   const firstDay = new Date(year, month - 1, 1).getDay();
@@ -96,295 +105,305 @@ function getCalendarDays(year: number, month: number): (number | null)[][] {
   return weeks;
 }
 
-function getDayOfWeek(year: number, month: number, day: number): number {
+function getDow(year: number, month: number, day: number): number {
   return new Date(year, month - 1, day).getDay();
 }
 
-function formatDateStr(year: number, month: number, day: number): string {
+function fmtDate(year: number, month: number, day: number): string {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
+
+function parseClassDays(raw: number[] | string | undefined): number[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+// ── Component ──
 
 export default function SchedulesPage() {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
-  const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [dayDetailOpen, setDayDetailOpen] = useState(false);
-  const [selectedDay, setSelectedDay] = useState<number | null>(null);
-  const [form, setForm] = useState({
-    name: "",
-    time_slot: "morning",
-    day_of_week: "mon",
-    start_time: "",
-    end_time: "",
-    instructor_name: "",
-  });
 
-  // Instructor schedule
-  const [instructors, setInstructors] = useState<Instructor[]>([]);
+  // Data
+  const [students, setStudents] = useState<Student[]>([]);
+  const [schedules, setSchedules] = useState<ScheduleRecord[]>([]);
+  const [instructors, setInstructors] = useState<InstructorOption[]>([]);
+
+  // Slot detail modal
+  const [slotModalOpen, setSlotModalOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedSlot, setSelectedSlot] = useState<TimeSlot>("morning");
+  const [slotSchedule, setSlotSchedule] = useState<ScheduleRecord | null>(null);
+  const [slotStudents, setSlotStudents] = useState<AttendanceRecord[]>([]);
+  const [slotInstructorId, setSlotInstructorId] = useState<string>("none");
+  const [attendanceMap, setAttendanceMap] = useState<Record<number, string>>({});
+  const [savingAttendance, setSavingAttendance] = useState(false);
+  const [savingInstructor, setSavingInstructor] = useState(false);
+
+  // Generating month schedules
+  const [generating, setGenerating] = useState(false);
 
   const yearMonth = `${year}-${String(month).padStart(2, "0")}`;
   const weeks = useMemo(() => getCalendarDays(year, month), [year, month]);
+  const daysInMonth = new Date(year, month, 0).getDate();
 
-  const fetchSchedules = useCallback(async () => {
+  // ── Data fetching ──
+
+  const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await schedulesAPI.list({ year_month: yearMonth });
-      const items: Schedule[] = data.items ?? data ?? [];
-      setSchedules(items);
+      const [studRes, schedRes, instRes] = await Promise.all([
+        studentsAPI.list({ limit: 1000 }),
+        schedulesAPI.list(),
+        instructorsAPI.list(),
+      ]);
+      const stuList = Array.isArray(studRes.data) ? studRes.data : studRes.data.items ?? [];
+      setStudents(stuList.filter((s: Student) => s.status === "active" || s.status === "trial"));
+
+      const schList = Array.isArray(schedRes.data) ? schedRes.data : schedRes.data.items ?? [];
+      setSchedules(schList);
+
+      const insList = Array.isArray(instRes.data) ? instRes.data : instRes.data.items ?? [];
+      setInstructors(insList);
     } catch {
-      setSchedules([]);
+      // ignore
     } finally {
       setLoading(false);
     }
-  }, [yearMonth]);
-
-  useEffect(() => {
-    fetchSchedules();
-  }, [fetchSchedules]);
-
-  // Fetch instructors
-  useEffect(() => {
-    (async () => {
-      try {
-        const { data } = await instructorsAPI.list();
-        const list = Array.isArray(data) ? data : data.items ?? [];
-        setInstructors(list);
-      } catch {
-        // ignore
-      }
-    })();
   }, []);
 
-  // Map instructor work_days to day-of-week for calendar overlay
-  const instructorsByDow = useMemo(() => {
-    const map: Record<number, Instructor[]> = {};
-    for (const inst of instructors) {
-      for (const day of inst.work_days ?? []) {
-        if (!map[day]) map[day] = [];
-        map[day].push(inst);
-      }
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
+
+  // ── Compute student counts per dow+slot ──
+
+  const studentsByDowSlot = useMemo(() => {
+    // Map: dow (0-6) → slot → student list
+    const map: Record<number, Record<string, Student[]>> = {};
+    for (let d = 0; d <= 6; d++) {
+      map[d] = { morning: [], afternoon: [], evening: [] };
     }
-    return map;
-  }, [instructors]);
-
-  // Map schedules to calendar dates
-  // Schedules have class_date (specific date) or day_of_week (recurring weekly)
-  const schedulesByDate = useMemo(() => {
-    const map: Record<string, Schedule[]> = {};
-    const daysInMonth = new Date(year, month, 0).getDate();
-
-    for (const schedule of schedules) {
-      if (schedule.class_date && schedule.class_date.startsWith(yearMonth)) {
-        // Specific date schedule
-        if (!map[schedule.class_date]) map[schedule.class_date] = [];
-        map[schedule.class_date].push(schedule);
-      } else if (schedule.day_of_week || (schedule.days && schedule.days.length > 0)) {
-        // Recurring schedule - map to all matching days in the month
-        const dayKeys = schedule.days && schedule.days.length > 0
-          ? schedule.days
-          : schedule.day_of_week
-            ? [schedule.day_of_week]
-            : [];
-
-        for (const dayKey of dayKeys) {
-          const targetDow = DAY_OF_WEEK_MAP[dayKey];
-          if (targetDow === undefined) continue;
-
-          for (let d = 1; d <= daysInMonth; d++) {
-            if (getDayOfWeek(year, month, d) === targetDow) {
-              const dateStr = formatDateStr(year, month, d);
-              if (!map[dateStr]) map[dateStr] = [];
-              // Avoid duplicates
-              if (!map[dateStr].some((s) => s.id === schedule.id)) {
-                map[dateStr].push(schedule);
-              }
-            }
-          }
+    for (const s of students) {
+      const days = parseClassDays(s.class_days);
+      const slot = s.time_slot || "morning";
+      for (const d of days) {
+        if (map[d] && map[d][slot]) {
+          map[d][slot].push(s);
         }
       }
     }
     return map;
-  }, [schedules, year, month, yearMonth]);
+  }, [students]);
+
+  // ── Map schedules by date+slot for quick lookup ──
+
+  const scheduleByDateSlot = useMemo(() => {
+    const map: Record<string, ScheduleRecord> = {};
+    for (const s of schedules) {
+      if (s.class_date && s.class_date.startsWith(yearMonth)) {
+        const key = `${s.class_date}|${s.time_slot}`;
+        map[key] = s;
+      }
+    }
+    return map;
+  }, [schedules, yearMonth]);
+
+  // ── Month navigation ──
 
   function changeMonth(delta: number) {
-    let newMonth = month + delta;
-    let newYear = year;
-    if (newMonth < 1) {
-      newMonth = 12;
-      newYear -= 1;
-    } else if (newMonth > 12) {
-      newMonth = 1;
-      newYear += 1;
-    }
-    setYear(newYear);
-    setMonth(newMonth);
+    let m = month + delta;
+    let y = year;
+    if (m < 1) { m = 12; y -= 1; }
+    else if (m > 12) { m = 1; y += 1; }
+    setYear(y);
+    setMonth(m);
   }
 
-  function handleDayClick(day: number) {
-    setSelectedDay(day);
-    setDayDetailOpen(true);
-  }
+  const isToday = (day: number) =>
+    year === today.getFullYear() && month === today.getMonth() + 1 && day === today.getDate();
 
-  function openCreateFromDay() {
-    if (selectedDay !== null) {
-      const dow = getDayOfWeek(year, month, selectedDay);
-      const dayKeys = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-      setForm((prev) => ({ ...prev, day_of_week: dayKeys[dow] }));
-    }
-    setDayDetailOpen(false);
-    setCreateOpen(true);
-  }
+  // ── Generate monthly schedules ──
 
-  async function handleCreate() {
+  async function handleGenerateMonth() {
+    setGenerating(true);
+    let created = 0;
     try {
-      const payload: Record<string, unknown> = {
-        name: form.name,
-        time_slot: form.time_slot,
-        day_of_week: form.day_of_week,
-      };
-      if (form.start_time) payload.start_time = form.start_time;
-      if (form.end_time) payload.end_time = form.end_time;
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dow = getDow(year, month, d);
+        const dateStr = fmtDate(year, month, d);
 
-      await schedulesAPI.create(payload);
-      toast.success("수업이 등록되었습니다");
-      setCreateOpen(false);
-      setForm({
-        name: "",
-        time_slot: "morning",
-        day_of_week: "mon",
-        start_time: "",
-        end_time: "",
-        instructor_name: "",
-      });
-      fetchSchedules();
+        for (const slot of SLOT_ORDER) {
+          const stuCount = studentsByDowSlot[dow]?.[slot]?.length ?? 0;
+          if (stuCount === 0) continue;
+
+          const key = `${dateStr}|${slot}`;
+          if (scheduleByDateSlot[key]) continue; // already exists
+
+          await schedulesAPI.create({
+            class_date: dateStr,
+            time_slot: slot,
+            name: `${TIME_SLOT_LABELS[slot]}반`,
+          });
+          created++;
+        }
+      }
+      if (created > 0) {
+        toast.success(`${created}개 스케줄이 생성되었습니다`);
+        fetchAll();
+      } else {
+        toast.info("이미 모든 스케줄이 생성되어 있습니다");
+      }
     } catch {
-      toast.error("수업 등록에 실패했습니다");
+      toast.error("스케줄 생성 중 오류가 발생했습니다");
+    } finally {
+      setGenerating(false);
     }
   }
 
-  const selectedDateStr = selectedDay ? formatDateStr(year, month, selectedDay) : "";
-  const selectedDaySchedules = selectedDateStr ? (schedulesByDate[selectedDateStr] ?? []) : [];
+  // ── Slot click → open detail modal ──
 
-  // Group selected day schedules by time_slot
-  const groupedBySlot = useMemo(() => {
-    const groups: Record<string, Schedule[]> = {
-      morning: [],
-      afternoon: [],
-      evening: [],
-    };
-    for (const s of selectedDaySchedules) {
-      const slot = s.time_slot || "morning";
-      if (!groups[slot]) groups[slot] = [];
-      groups[slot].push(s);
+  async function handleSlotClick(dateStr: string, slot: TimeSlot) {
+    setSelectedDate(dateStr);
+    setSelectedSlot(slot);
+    setSlotModalOpen(true);
+    setSlotStudents([]);
+    setAttendanceMap({});
+    setSlotSchedule(null);
+    setSlotInstructorId("none");
+
+    const key = `${dateStr}|${slot}`;
+    const sched = scheduleByDateSlot[key] ?? null;
+    setSlotSchedule(sched);
+
+    if (sched?.instructor_id) {
+      setSlotInstructorId(String(sched.instructor_id));
     }
-    return groups;
-  }, [selectedDaySchedules]);
 
-  const isToday = (day: number) => {
-    return year === today.getFullYear() && month === today.getMonth() + 1 && day === today.getDate();
-  };
+    // Load attendance if schedule exists
+    if (sched) {
+      try {
+        const { data } = await schedulesAPI.attendance(sched.id);
+        const list: AttendanceRecord[] = data.students ?? data ?? [];
+        setSlotStudents(list);
+        const map: Record<number, string> = {};
+        for (const a of list) {
+          if (a.status) map[a.student_id] = a.status;
+        }
+        setAttendanceMap(map);
+      } catch {
+        // derive from student data
+        const dow = new Date(dateStr).getDay();
+        const studs = studentsByDowSlot[dow]?.[slot] ?? [];
+        setSlotStudents(studs.map((s) => ({ student_id: s.id, student_name: s.name, status: null })));
+      }
+    } else {
+      // No schedule record yet - show student list from data
+      const dow = new Date(dateStr).getDay();
+      const studs = studentsByDowSlot[dow]?.[slot] ?? [];
+      setSlotStudents(studs.map((s) => ({ student_id: s.id, student_name: s.name, status: null })));
+    }
+  }
+
+  // ── Assign instructor to slot ──
+
+  async function handleAssignInstructor(instructorId: string) {
+    setSavingInstructor(true);
+    setSlotInstructorId(instructorId);
+    try {
+      const instId = instructorId === "none" ? null : Number(instructorId);
+      if (slotSchedule) {
+        // Update existing
+        await schedulesAPI.update(slotSchedule.id, { instructor_id: instId });
+      } else {
+        // Create new schedule record
+        const res = await schedulesAPI.create({
+          class_date: selectedDate,
+          time_slot: selectedSlot,
+          name: `${TIME_SLOT_LABELS[selectedSlot]}반`,
+          instructor_id: instId,
+        });
+        setSlotSchedule(res.data);
+      }
+      toast.success("강사가 배정되었습니다");
+      fetchAll();
+    } catch {
+      toast.error("강사 배정에 실패했습니다");
+    } finally {
+      setSavingInstructor(false);
+    }
+  }
+
+  // ── Mark attendance ──
+
+  function toggleAttendance(studentId: number, status: string) {
+    setAttendanceMap((prev) => {
+      if (prev[studentId] === status) {
+        const next = { ...prev };
+        delete next[studentId];
+        return next;
+      }
+      return { ...prev, [studentId]: status };
+    });
+  }
+
+  function markAllPresent() {
+    const map: Record<number, string> = {};
+    for (const s of slotStudents) {
+      map[s.student_id] = "present";
+    }
+    setAttendanceMap(map);
+  }
+
+  async function handleSaveAttendance() {
+    if (!slotSchedule) {
+      toast.error("먼저 스케줄을 생성해주세요 (월 스케줄 생성)");
+      return;
+    }
+    setSavingAttendance(true);
+    try {
+      const records = slotStudents.map((s) => ({
+        student_id: s.student_id,
+        status: attendanceMap[s.student_id] ?? "present",
+      }));
+      await schedulesAPI.markAttendance(slotSchedule.id, { records });
+      toast.success("출석이 저장되었습니다");
+      fetchAll();
+    } catch {
+      toast.error("출석 저장에 실패했습니다");
+    } finally {
+      setSavingAttendance(false);
+    }
+  }
+
+  // ── Render helpers ──
+
+  const selectedDow = selectedDate ? new Date(selectedDate).getDay() : 0;
+  const selectedDayLabel = selectedDate
+    ? `${selectedDate.replace(/-/g, ".")} (${DAY_LABELS[selectedDow]})`
+    : "";
 
   return (
     <div>
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-900">수업 일정</h1>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4" />
-              수업 등록
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>수업 등록</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>수업 이름</Label>
-                <Input
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="예: 초등 오전반"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>시간대</Label>
-                  <Select
-                    value={form.time_slot}
-                    onValueChange={(v) => setForm({ ...form, time_slot: v })}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="morning">오전</SelectItem>
-                      <SelectItem value="afternoon">오후</SelectItem>
-                      <SelectItem value="evening">저녁</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>요일</Label>
-                  <Select
-                    value={form.day_of_week}
-                    onValueChange={(v) => setForm({ ...form, day_of_week: v })}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {["mon", "tue", "wed", "thu", "fri", "sat"].map((key) => (
-                        <SelectItem key={key} value={key}>
-                          {DAY_LABELS[DAY_OF_WEEK_MAP[key]]}요일
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>시작 시간</Label>
-                  <Input
-                    type="time"
-                    value={form.start_time}
-                    onChange={(e) => setForm({ ...form, start_time: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>종료 시간</Label>
-                  <Input
-                    type="time"
-                    value={form.end_time}
-                    onChange={(e) => setForm({ ...form, end_time: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>강사 (선택)</Label>
-                <Input
-                  value={form.instructor_name}
-                  onChange={(e) => setForm({ ...form, instructor_name: e.target.value })}
-                  placeholder="강사명 입력"
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setCreateOpen(false)}>
-                취소
-              </Button>
-              <Button onClick={handleCreate} disabled={!form.name}>
-                등록
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <Button onClick={handleGenerateMonth} disabled={generating}>
+          {generating ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <CalendarPlus className="h-4 w-4" />
+          )}
+          {generating ? "생성 중..." : "월 스케줄 생성"}
+        </Button>
       </div>
 
       {/* Month navigation */}
@@ -407,7 +426,7 @@ export default function SchedulesPage() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border border-slate-200">
-          {/* Day of week header */}
+          {/* Day header */}
           <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
             {DAY_LABELS.map((label, i) => (
               <div
@@ -426,28 +445,21 @@ export default function SchedulesPage() {
             <div key={wi} className="grid grid-cols-7 border-b border-slate-100 last:border-b-0">
               {week.map((day, di) => {
                 if (day === null) {
-                  return <div key={di} className="min-h-[80px] bg-slate-50/50" />;
+                  return <div key={di} className="min-h-[90px] bg-slate-50/50" />;
                 }
-                const dateStr = formatDateStr(year, month, day);
-                const daySchedules = schedulesByDate[dateStr] ?? [];
-                const hasSchedules = daySchedules.length > 0;
+                const dateStr = fmtDate(year, month, day);
+                const dow = getDow(year, month, day);
                 const todayClass = isToday(day);
-                const dow = getDayOfWeek(year, month, day);
-                const dayInstructors = instructorsByDow[dow] ?? [];
-
-                // Collect unique time slots
-                const timeSlots = [...new Set(daySchedules.map((s) => s.time_slot))];
 
                 return (
-                  <button
+                  <div
                     key={di}
-                    onClick={() => handleDayClick(day)}
-                    className={`min-h-[80px] border-r border-slate-100 p-1.5 text-left transition-colors last:border-r-0 hover:bg-slate-50 ${
+                    className={`min-h-[90px] border-r border-slate-100 p-1 last:border-r-0 ${
                       todayClass ? "bg-blue-50/50" : ""
                     }`}
                   >
                     <span
-                      className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
+                      className={`mb-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-medium ${
                         todayClass
                           ? "bg-blue-600 text-white"
                           : di === 0
@@ -459,56 +471,47 @@ export default function SchedulesPage() {
                     >
                       {day}
                     </span>
-                    {hasSchedules && (
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {timeSlots.map((slot) => (
-                          <span
+                    {/* 3 time slots */}
+                    <div className="space-y-0.5">
+                      {SLOT_ORDER.map((slot) => {
+                        const stuCount = studentsByDowSlot[dow]?.[slot]?.length ?? 0;
+                        if (stuCount === 0) return null;
+
+                        const key = `${dateStr}|${slot}`;
+                        const sched = scheduleByDateSlot[key];
+                        const colors = SLOT_COLORS[slot];
+                        const hasInstructor = sched?.instructor_id != null;
+                        const attended = sched?.attendance_taken;
+
+                        return (
+                          <button
                             key={slot}
-                            className={`h-2 w-2 rounded-full ${TIME_SLOT_COLORS[slot] ?? "bg-slate-400"}`}
-                            title={TIME_SLOT_LABELS[slot as TimeSlot] ?? slot}
-                          />
-                        ))}
-                      </div>
-                    )}
-                    {hasSchedules && (
-                      <div className="mt-0.5">
-                        {daySchedules.slice(0, 2).map((s) => (
-                          <div
-                            key={s.id}
-                            className={`mt-0.5 flex items-center gap-0.5 truncate rounded px-1 text-[10px] leading-tight ${
-                              s.attendance_taken
+                            onClick={() => handleSlotClick(dateStr, slot)}
+                            className={`flex w-full items-center gap-0.5 rounded px-1 py-0.5 text-[10px] leading-tight transition-colors hover:ring-1 hover:ring-slate-300 ${
+                              attended
                                 ? "bg-green-50 text-green-700 ring-1 ring-green-200"
-                                : TIME_SLOT_RING_COLORS[s.time_slot] ?? "bg-slate-100 text-slate-600"
+                                : `${colors.bg} ${colors.text}`
                             }`}
                           >
-                            <span className="truncate">{s.name}</span>
-                            {(s.student_count != null && s.student_count > 0) && (
-                              <span className="shrink-0 font-semibold">{s.student_count}{s.capacity ? `/${s.capacity}` : ""}명</span>
+                            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${colors.dot}`} />
+                            <span className="truncate font-medium">
+                              {TIME_SLOT_LABELS[slot]}
+                            </span>
+                            <span className="ml-auto flex shrink-0 items-center gap-0.5">
+                              <Users className="h-2.5 w-2.5" />
+                              {stuCount}
+                            </span>
+                            {hasInstructor && (
+                              <UserCheck className="h-2.5 w-2.5 shrink-0 text-violet-500" />
                             )}
-                            {s.attendance_taken && <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />}
-                          </div>
-                        ))}
-                        {daySchedules.length > 2 && (
-                          <div className="mt-0.5 text-[10px] text-slate-400">
-                            +{daySchedules.length - 2}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {dayInstructors.length > 0 && (
-                      <div className="mt-auto flex flex-wrap gap-0.5 pt-0.5">
-                        {dayInstructors.map((inst) => (
-                          <span
-                            key={inst.id}
-                            className="rounded bg-violet-50 px-1 text-[9px] leading-tight text-violet-600"
-                            title={inst.name}
-                          >
-                            {inst.name.length > 3 ? inst.name.slice(0, 3) : inst.name}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </button>
+                            {attended && (
+                              <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 );
               })}
             </div>
@@ -517,137 +520,130 @@ export default function SchedulesPage() {
       )}
 
       {/* Legend */}
-      <div className="mt-3 flex items-center gap-4 text-xs text-slate-500">
+      <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-500">
+        {SLOT_ORDER.map((slot) => (
+          <div key={slot} className="flex items-center gap-1.5">
+            <span className={`h-2.5 w-2.5 rounded-full ${SLOT_COLORS[slot].dot}`} />
+            {TIME_SLOT_LABELS[slot]}
+          </div>
+        ))}
         <div className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
-          오전
+          <UserCheck className="h-3 w-3 text-violet-500" />
+          강사 배정
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
-          오후
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-orange-500" />
-          저녁
+          <CheckCircle2 className="h-3 w-3 text-green-500" />
+          출석 완료
         </div>
       </div>
 
-      {/* Day detail dialog */}
-      <Dialog open={dayDetailOpen} onOpenChange={setDayDetailOpen}>
-        <DialogContent className="max-w-md">
+      {/* ── Slot Detail Modal ── */}
+      <Dialog open={slotModalOpen} onOpenChange={setSlotModalOpen}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>
-              {selectedDay && `${year}년 ${month}월 ${selectedDay}일`}{" "}
-              {selectedDay && (
-                <span className="text-sm font-normal text-slate-400">
-                  ({DAY_LABELS[getDayOfWeek(year, month, selectedDay)]})
-                </span>
-              )}
+            <DialogTitle className="flex items-center gap-2">
+              <span className={`h-3 w-3 rounded-full ${SLOT_COLORS[selectedSlot]?.dot}`} />
+              {selectedDayLabel} {TIME_SLOT_LABELS[selectedSlot]}반
+              <Badge variant="secondary" className="ml-auto text-xs">
+                {slotStudents.length}명
+              </Badge>
             </DialogTitle>
           </DialogHeader>
+
           <div className="space-y-4">
-            {selectedDaySchedules.length === 0 ? (
+            {/* Instructor assignment */}
+            <div className="flex items-center gap-3 rounded-md bg-slate-50 p-3">
+              <span className="text-sm font-medium text-slate-700">담당 강사</span>
+              <Select
+                value={slotInstructorId}
+                onValueChange={handleAssignInstructor}
+                disabled={savingInstructor}
+              >
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="강사 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">미배정</SelectItem>
+                  {instructors.map((inst) => (
+                    <SelectItem key={inst.id} value={String(inst.id)}>
+                      {inst.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {savingInstructor && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
+            </div>
+
+            {/* Student attendance list */}
+            {slotStudents.length === 0 ? (
               <p className="py-6 text-center text-sm text-slate-400">
-                등록된 수업이 없습니다
+                이 시간대에 등록된 학생이 없습니다
               </p>
             ) : (
-              (["morning", "afternoon", "evening"] as const).map((slot) => {
-                const slotSchedules = groupedBySlot[slot];
-                if (!slotSchedules || slotSchedules.length === 0) return null;
-                return (
-                  <div key={slot}>
-                    <div className="mb-2 flex items-center gap-2">
-                      <span
-                        className={`h-2.5 w-2.5 rounded-full ${TIME_SLOT_COLORS[slot]}`}
-                      />
-                      <span className="text-sm font-medium text-slate-700">
-                        {TIME_SLOT_LABELS[slot]}반
-                      </span>
-                    </div>
-                    <div className="space-y-2 pl-5">
-                      {slotSchedules.map((s) => (
-                        <div
-                          key={s.id}
-                          className={`rounded-lg border px-3 py-2 ${
-                            s.is_closed
-                              ? "border-red-200 bg-red-50/50"
-                              : s.attendance_taken
-                                ? "border-green-200 bg-green-50/30"
-                                : "border-slate-200"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium text-slate-900">
-                                {s.title || s.name}
-                              </span>
-                              {s.is_closed && (
-                                <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
-                                  휴강
-                                </Badge>
-                              )}
-                              {s.has_makeup && (
-                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-600">
-                                  보충
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              {s.attendance_taken ? (
-                                <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                              ) : !s.is_closed ? (
-                                <XCircle className="h-3.5 w-3.5 text-slate-300" />
-                              ) : null}
-                              <Badge variant="secondary" className="text-xs">
-                                {s.student_count ?? 0}{s.capacity ? `/${s.capacity}` : ""}명
-                              </Badge>
-                            </div>
-                          </div>
-                          <div className="mt-1 flex items-center gap-3 text-xs text-slate-500">
-                            {s.start_time && s.end_time && (
-                              <span className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {s.start_time} - {s.end_time}
-                              </span>
-                            )}
-                            {s.instructor_name && (
-                              <span className="flex items-center gap-1">
-                                <Users className="h-3 w-3" />
-                                {s.instructor_name}
-                              </span>
-                            )}
-                            {!s.is_closed && (
-                              <Link
-                                href={`/schedules/${s.id}/attendance`}
-                                className="flex items-center gap-1 text-blue-600 hover:underline"
-                                onClick={() => setDayDetailOpen(false)}
-                              >
-                                <ClipboardList className="h-3 w-3" />
-                                출석부
-                              </Link>
-                            )}
-                          </div>
-                          {s.is_closed && s.close_reason && (
-                            <p className="mt-1 text-[11px] text-red-500">
-                              사유: {s.close_reason}
-                            </p>
-                          )}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-700">출석부</span>
+                  <Button variant="outline" size="sm" onClick={markAllPresent}>
+                    전체 출석
+                  </Button>
+                </div>
+                <div className="max-h-[320px] space-y-1 overflow-y-auto rounded-md border p-2">
+                  {slotStudents.map((s) => {
+                    const curStatus = attendanceMap[s.student_id];
+                    return (
+                      <div
+                        key={s.student_id}
+                        className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-slate-50"
+                      >
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">
+                          {s.student_name}
+                        </span>
+                        <div className="flex shrink-0 gap-1">
+                          {(
+                            [
+                              { key: "present", label: "출석", color: "bg-green-500" },
+                              { key: "absent", label: "결석", color: "bg-red-500" },
+                              { key: "late", label: "지각", color: "bg-amber-500" },
+                              { key: "excused", label: "공결", color: "bg-slate-400" },
+                            ] as const
+                          ).map((opt) => (
+                            <button
+                              key={opt.key}
+                              onClick={() => toggleAttendance(s.student_id, opt.key)}
+                              className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                                curStatus === opt.key
+                                  ? `${opt.color} text-white`
+                                  : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </div>
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDayDetailOpen(false)}>
+            <Button variant="outline" onClick={() => setSlotModalOpen(false)}>
               닫기
             </Button>
-            <Button onClick={openCreateFromDay}>
-              <Plus className="h-4 w-4" />
-              수업 추가
-            </Button>
+            {slotStudents.length > 0 && (
+              <Button onClick={handleSaveAttendance} disabled={savingAttendance}>
+                {savingAttendance ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    저장 중...
+                  </>
+                ) : (
+                  "출석 저장"
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

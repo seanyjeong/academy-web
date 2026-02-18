@@ -29,8 +29,25 @@ export const salariesAPI = {
   list: (params?: Record<string, unknown>) =>
     apiClient.get("/salaries", { params }),
   get: (id: number) => apiClient.get(`/salaries/${id}`),
+  create: (data: Record<string, unknown>) =>
+    apiClient.post("/salaries", data),
+  update: (id: number, data: Record<string, unknown>) =>
+    apiClient.put(`/salaries/${id}`, data),
+  delete: (id: number) => apiClient.delete(`/salaries/${id}`),
   calculate: (data: Record<string, unknown>) =>
     apiClient.post("/salaries/calculate", data),
+  recalculate: (id: number) =>
+    apiClient.post(`/salaries/recalculate/${id}`),
+  pay: (id: number) =>
+    apiClient.post(`/salaries/${id}/pay`),
+  bulkPay: (data: Record<string, unknown>) =>
+    apiClient.post("/salaries/bulk-pay", data),
+  summary: (yearMonth: string) =>
+    apiClient.get("/salaries/summary", { params: { year_month: yearMonth } }),
+  workSummary: (instructorId: number, yearMonth: string) =>
+    apiClient.get("/salaries/work-summary", {
+      params: { instructor_id: instructorId, year_month: yearMonth },
+    }),
 };
 
 export const incomesAPI = {
