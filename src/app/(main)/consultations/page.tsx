@@ -176,7 +176,7 @@ export default function ConsultationsPage() {
       if (status !== "all") params.status = status;
       if (search) params.search = search;
       const { data } = await consultationsAPI.list(params);
-      setConsultations(Array.isArray(data) ? data : data.items ?? data.data ?? []);
+      setConsultations(Array.isArray(data) ? data : data?.items ?? data?.data ?? []);
     } catch {
       setConsultations([]);
     } finally {
@@ -227,7 +227,7 @@ export default function ConsultationsPage() {
     setEnrolledLoading(true);
     try {
       const { data } = await consultationsAPI.enrolled();
-      setEnrolledList(Array.isArray(data) ? data : data.items ?? data.data ?? []);
+      setEnrolledList(Array.isArray(data) ? data : data?.items ?? data?.data ?? []);
     } catch {
       setEnrolledList([]);
     } finally {
@@ -244,7 +244,7 @@ export default function ConsultationsPage() {
     setSettingsLoading(true);
     try {
       const { data } = await consultationsAPI.settings();
-      const s = data.data ?? data;
+      const s = data?.data ?? data ?? {};
       setSettings(s);
       setSettingsForm({ ...s });
     } catch {

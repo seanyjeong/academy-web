@@ -19,6 +19,7 @@ import Link from "next/link";
 import { ArrowLeft, Plus, Trash2, Clock } from "lucide-react";
 
 const WEEKDAYS = [
+  { key: "sun", label: "일" },
   { key: "mon", label: "월" },
   { key: "tue", label: "화" },
   { key: "wed", label: "수" },
@@ -41,6 +42,8 @@ export default function ConsultationSettingsPage() {
   const [settings, setSettings] = useState({
     slug: "",
     enabled: true,
+    academy_name_display: "",
+    description: "",
     duration_minutes: 30,
     max_per_slot: 1,
     fields: {
@@ -70,6 +73,8 @@ export default function ConsultationSettingsPage() {
             ...prev,
             slug: data.slug ?? "",
             enabled: data.is_active ?? true,
+            academy_name_display: data.academy_name_display ?? "",
+            description: data.description ?? "",
             duration_minutes: data.duration_minutes ?? 30,
             max_per_slot: data.max_per_slot ?? 1,
             fields: data.fields ?? prev.fields,
@@ -98,6 +103,8 @@ export default function ConsultationSettingsPage() {
       await consultationsAPI.updateSettings({
         slug: settings.slug,
         is_active: settings.enabled,
+        academy_name_display: settings.academy_name_display,
+        description: settings.description,
         duration_minutes: settings.duration_minutes,
         max_per_slot: settings.max_per_slot,
         fields: settings.fields,
@@ -191,6 +198,35 @@ export default function ConsultationSettingsPage() {
                   공개 URL: {typeof window !== "undefined" ? window.location.origin : ""}/c/{settings.slug}
                 </p>
               )}
+            </div>
+
+            <div>
+              <Label htmlFor="academy_name_display">학원 표시명</Label>
+              <Input
+                id="academy_name_display"
+                value={settings.academy_name_display}
+                onChange={(e) => setSettings((p) => ({ ...p, academy_name_display: e.target.value }))}
+                placeholder="공개 폼에 표시될 학원 이름"
+                className="mt-1.5"
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                공개 상담 폼 상단에 표시됩니다
+              </p>
+            </div>
+
+            <div>
+              <Label htmlFor="description">상담 안내 문구</Label>
+              <textarea
+                id="description"
+                value={settings.description}
+                onChange={(e) => setSettings((p) => ({ ...p, description: e.target.value }))}
+                placeholder="상담 신청서를 작성해주세요"
+                className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                rows={2}
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                공개 폼 상단 설명 문구입니다
+              </p>
             </div>
 
             <Separator />
