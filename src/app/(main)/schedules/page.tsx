@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { schedulesAPI } from "@/lib/api/schedules";
+import { instructorsAPI } from "@/lib/api/instructors";
 import { DAY_LABELS, TIME_SLOT_LABELS } from "@/lib/types/student";
 import type { TimeSlot } from "@/lib/types/student";
 
@@ -45,6 +46,13 @@ interface Schedule {
   close_reason?: string;
   capacity?: number;
   has_makeup?: boolean;
+}
+
+interface Instructor {
+  id: number;
+  name: string;
+  work_days?: number[];
+  time_slot?: string;
 }
 
 const TIME_SLOT_COLORS: Record<string, string> = {
@@ -114,13 +122,17 @@ export default function SchedulesPage() {
     instructor_name: "",
   });
 
+  // Instructor schedule
+  const [instructors, setInstructors] = useState<Instructor[]>([]);
+  const [showInstructors, setShowInstructors] = useState(false);
+
   const yearMonth = `${year}-${String(month).padStart(2, "0")}`;
   const weeks = useMemo(() => getCalendarDays(year, month), [year, month]);
 
   const fetchSchedules = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await schedulesAPI.list();
+      const { data } = await schedulesAPI.list({ year_month: yearMonth });
       const items: Schedule[] = data.items ?? data ?? [];
       setSchedules(items);
     } catch {
@@ -128,11 +140,24 @@ export default function SchedulesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [yearMonth]);
 
   useEffect(() => {
     fetchSchedules();
   }, [fetchSchedules]);
+
+  // Fetch instructors
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await instructorsAPI.list();
+        const list = Array.isArray(data) ? data : data.items ?? [];
+        setInstructors(list);
+      } catch {
+        // ignore
+      }
+    })();
+  }, []);
 
   // Map schedules to calendar dates
   // Schedules have class_date (specific date) or day_of_week (recurring weekly)
@@ -351,6 +376,68 @@ export default function SchedulesPage() {
         </Dialog>
       </div>
 
+      {/* Instructor work days */}
+      {instructors.length > 0 && (
+        <div className="mb-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mb-2 text-xs text-slate-500"
+            onClick={() => setShowInstructors(!showInstructors)}
+          >
+            <Users className="mr-1 h-3.5 w-3.5" />
+            강사 출근일 {showInstructors ? "접기" : "보기"} ({instructors.length}명)
+          </Button>
+          {showInstructors && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3 space-y-2">
+              {instructors.map((inst) => {
+                const workDays = inst.work_days ?? [];
+                return (
+                  <div key={inst.id} className="flex items-center gap-3">
+                    <span className="w-16 text-sm font-medium truncate">{inst.name}</span>
+                    <div className="flex gap-1">
+                      {[1, 2, 3, 4, 5, 6].map((day) => {
+                        const active = workDays.includes(day);
+                        return (
+                          <button
+                            key={day}
+                            className={`h-7 w-8 rounded text-xs font-medium transition-colors ${
+                              active
+                                ? "bg-blue-600 text-white"
+                                : "bg-white text-slate-400 border border-slate-200 hover:border-blue-300"
+                            }`}
+                            onClick={async () => {
+                              const newDays = active
+                                ? workDays.filter((d) => d !== day)
+                                : [...workDays, day].sort((a, b) => a - b);
+                              try {
+                                await instructorsAPI.update(inst.id, { work_days: newDays });
+                                setInstructors((prev) =>
+                                  prev.map((i) => i.id === inst.id ? { ...i, work_days: newDays } : i)
+                                );
+                              } catch {
+                                toast.error("저장 실패");
+                              }
+                            }}
+                          >
+                            {DAY_LABELS[day]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {inst.time_slot && (
+                      <Badge variant="outline" className="text-xs">
+                        {TIME_SLOT_LABELS[inst.time_slot as TimeSlot] ?? inst.time_slot}
+                      </Badge>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Month navigation */}
       <div className="mb-4 flex items-center justify-center gap-3">
         <Button variant="outline" size="icon" onClick={() => changeMonth(-1)}>
@@ -437,11 +524,17 @@ export default function SchedulesPage() {
                         {daySchedules.slice(0, 2).map((s) => (
                           <div
                             key={s.id}
-                            className={`mt-0.5 truncate rounded px-1 text-[10px] leading-tight ${
-                              TIME_SLOT_RING_COLORS[s.time_slot] ?? "bg-slate-100 text-slate-600"
+                            className={`mt-0.5 flex items-center gap-0.5 truncate rounded px-1 text-[10px] leading-tight ${
+                              s.attendance_taken
+                                ? "bg-green-50 text-green-700 ring-1 ring-green-200"
+                                : TIME_SLOT_RING_COLORS[s.time_slot] ?? "bg-slate-100 text-slate-600"
                             }`}
                           >
-                            {s.name}
+                            <span className="truncate">{s.name}</span>
+                            {(s.student_count != null && s.student_count > 0) && (
+                              <span className="shrink-0 font-semibold">{s.student_count}{s.capacity ? `/${s.capacity}` : ""}명</span>
+                            )}
+                            {s.attendance_taken && <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />}
                           </div>
                         ))}
                         {daySchedules.length > 2 && (

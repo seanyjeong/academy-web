@@ -301,50 +301,74 @@ export default function ConsultationSettingsPage() {
         <Card>
           <CardHeader>
             <CardTitle>주간 상담 가능 시간</CardTitle>
-            <CardDescription>요일별 상담 가능 시간대를 설정합니다 (예: 09:00-12:00)</CardDescription>
+            <CardDescription>요일별 상담 가능 시간대를 설정합니다</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {WEEKDAYS.map(({ key, label }) => {
               const hours = weeklyHours[key] ?? [];
               return (
-                <div key={key} className="flex items-center gap-3 rounded-lg border px-4 py-2">
-                  <span className="w-8 text-sm font-medium">{label}</span>
-                  <div className="flex flex-1 flex-wrap items-center gap-2">
-                    {hours.map((h, i) => (
-                      <Badge key={i} variant="secondary" className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {h}
-                        <button
-                          className="ml-1 text-slate-400 hover:text-red-500"
-                          onClick={() => {
-                            const updated = hours.filter((_, idx) => idx !== i);
-                            setWeeklyHours((wh) => ({ ...wh, [key]: updated }));
-                          }}
-                        >
-                          ×
-                        </button>
-                      </Badge>
-                    ))}
+                <div key={key} className="space-y-2 rounded-lg border px-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold">{label}요일</span>
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
                       className="h-7 text-xs"
                       onClick={() => {
-                        const range = prompt("시간대 입력 (예: 09:00-12:00)");
-                        if (range && /^\d{2}:\d{2}-\d{2}:\d{2}$/.test(range)) {
-                          setWeeklyHours((wh) => ({
-                            ...wh,
-                            [key]: [...(wh[key] ?? []), range],
-                          }));
-                        } else if (range) {
-                          toast.error("형식: HH:MM-HH:MM");
-                        }
+                        setWeeklyHours((wh) => ({
+                          ...wh,
+                          [key]: [...(wh[key] ?? []), "09:00-18:00"],
+                        }));
                       }}
                     >
                       <Plus className="mr-1 h-3 w-3" />
-                      추가
+                      시간 추가
                     </Button>
                   </div>
+                  {hours.length === 0 ? (
+                    <p className="text-xs text-slate-400">상담 불가 (시간을 추가하세요)</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {hours.map((h, i) => {
+                        const [startVal, endVal] = h.split("-");
+                        return (
+                          <div key={i} className="flex items-center gap-2">
+                            <Clock className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                            <Input
+                              type="time"
+                              value={startVal || "09:00"}
+                              onChange={(e) => {
+                                const updated = [...hours];
+                                updated[i] = `${e.target.value}-${endVal || "18:00"}`;
+                                setWeeklyHours((wh) => ({ ...wh, [key]: updated }));
+                              }}
+                              className="h-8 w-[120px] text-sm"
+                            />
+                            <span className="text-slate-400">~</span>
+                            <Input
+                              type="time"
+                              value={endVal || "18:00"}
+                              onChange={(e) => {
+                                const updated = [...hours];
+                                updated[i] = `${startVal || "09:00"}-${e.target.value}`;
+                                setWeeklyHours((wh) => ({ ...wh, [key]: updated }));
+                              }}
+                              className="h-8 w-[120px] text-sm"
+                            />
+                            <button
+                              className="text-slate-400 hover:text-red-500"
+                              onClick={() => {
+                                const updated = hours.filter((_, idx) => idx !== i);
+                                setWeeklyHours((wh) => ({ ...wh, [key]: updated }));
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
