@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { studentsAPI } from "@/lib/api/students";
 import { paymentsAPI } from "@/lib/api/payments";
+import { schedulesAPI } from "@/lib/api/schedules";
 import type {
   StudentFormData,
   StudentType,
@@ -262,16 +263,25 @@ export default function NewStudentPage() {
       const res = await studentsAPI.create(submitData);
       const newStudent = res.data;
 
-      // Auto-create payment for current month if not trial and has tuition
+      // 1. Auto-create payment for current month if not trial and has tuition
       if (!form.is_trial && finalTuition > 0 && newStudent?.id) {
         try {
           const now = new Date();
           const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
           const todayDay = now.getDate();
+          const baseTuition = form.monthly_tuition || 0;
+          const discountAmount = baseTuition - finalTuition;
 
           // Prorated calculation if mid-month enrollment
-          let paymentAmount = finalTuition;
+          let proratedBase = baseTuition;
+          let proratedDiscount = discountAmount;
+          let proratedFinal = finalTuition;
+
           if (todayDay > 1) {
+            const totalDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            const remainingDays = totalDays - todayDay + 1;
+            const ratio = remainingDays / totalDays;
+
             try {
               const preview = await paymentsAPI.prepaidPreview({
                 student_id: newStudent.id,
@@ -280,13 +290,15 @@ export default function NewStudentPage() {
                 year_month: yearMonth,
               });
               if (preview.data?.prorated_amount != null) {
-                paymentAmount = preview.data.prorated_amount;
+                proratedFinal = preview.data.prorated_amount;
+                proratedBase = Math.round(baseTuition * ratio);
+                proratedDiscount = proratedBase - proratedFinal;
               }
             } catch {
               // Backend preview not available, calculate locally
-              const totalDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-              const remainingDays = totalDays - todayDay + 1;
-              paymentAmount = Math.floor((finalTuition / totalDays) * remainingDays / 1000) * 1000;
+              proratedBase = Math.floor((baseTuition * ratio) / 1000) * 1000;
+              proratedDiscount = Math.floor((discountAmount * ratio) / 1000) * 1000;
+              proratedFinal = proratedBase - proratedDiscount;
             }
           }
 
@@ -294,23 +306,51 @@ export default function NewStudentPage() {
             student_id: newStudent.id,
             year_month: yearMonth,
             payment_type: "monthly",
-            base_amount: form.monthly_tuition || 0,
-            discount_amount: (form.monthly_tuition || 0) - finalTuition,
-            final_amount: paymentAmount,
+            base_amount: proratedBase,
+            discount_amount: proratedDiscount,
+            final_amount: proratedFinal,
             payment_status: "unpaid",
-            notes: todayDay > 1 ? `일할계산 (${todayDay}일 등록)` : undefined,
+            notes: todayDay > 1 ? `일할계산 (${todayDay}일 등록, 잔여 ${new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - todayDay + 1}일)` : undefined,
           });
           const msg = todayDay > 1
-            ? `학생 등록 완료 (${yearMonth} 일할계산 수납 ${paymentAmount.toLocaleString()}원 생성)`
-            : "학생이 등록되고 수납이 자동 생성되었습니다";
+            ? `수납 생성: ${proratedFinal.toLocaleString()}원 (일할계산)`
+            : `수납 생성: ${proratedFinal.toLocaleString()}원`;
           toast.success(msg);
         } catch {
-          toast.success("학생이 등록되었습니다 (수납 자동 생성 실패 - 수동으로 생성해주세요)");
+          toast.warning("수납 자동 생성 실패 - 수납관리에서 수동 생성해주세요");
         }
-      } else {
-        toast.success("학생이 등록되었습니다");
       }
 
+      // 2. Auto-create schedules for student's class days
+      if (form.class_days.length > 0 && form.time_slot) {
+        try {
+          const dayKeys = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+          const slotLabel = TIME_SLOT_LABELS[form.time_slot as TimeSlot] ?? form.time_slot;
+
+          // Fetch existing schedules to avoid duplicates
+          const { data: existingData } = await schedulesAPI.list();
+          const existing: { day_of_week?: string | null; time_slot?: string }[] =
+            Array.isArray(existingData) ? existingData : existingData.items ?? [];
+
+          for (const day of form.class_days) {
+            const dayKey = dayKeys[day];
+            const alreadyExists = existing.some(
+              (s) => s.day_of_week === dayKey && s.time_slot === form.time_slot
+            );
+            if (!alreadyExists) {
+              await schedulesAPI.create({
+                name: `${slotLabel}반`,
+                time_slot: form.time_slot,
+                day_of_week: dayKey,
+              });
+            }
+          }
+        } catch {
+          // Schedule creation is best-effort
+        }
+      }
+
+      toast.success("학생이 등록되었습니다");
       router.push("/students");
     } catch {
       toast.error("학생 등록에 실패했습니다");
