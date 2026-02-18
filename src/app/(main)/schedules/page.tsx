@@ -1,21 +1,22 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
-import Link from "next/link";
 import {
   ChevronLeft,
   ChevronRight,
-  Plus,
-  Clock,
   Users,
   CheckCircle2,
   XCircle,
   UserCheck,
   Loader2,
   CalendarPlus,
+  X,
+  Copy,
+  Save,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -137,16 +138,20 @@ export default function SchedulesPage() {
   const [schedules, setSchedules] = useState<ScheduleRecord[]>([]);
   const [instructors, setInstructors] = useState<InstructorOption[]>([]);
 
-  // Slot detail modal
+  // Slot detail modal (attendance)
   const [slotModalOpen, setSlotModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot>("morning");
   const [slotSchedule, setSlotSchedule] = useState<ScheduleRecord | null>(null);
   const [slotStudents, setSlotStudents] = useState<AttendanceRecord[]>([]);
-  const [slotInstructorId, setSlotInstructorId] = useState<string>("none");
   const [attendanceMap, setAttendanceMap] = useState<Record<number, string>>({});
   const [savingAttendance, setSavingAttendance] = useState(false);
-  const [savingInstructor, setSavingInstructor] = useState(false);
+
+  // Instructor assignment panel (right sidebar)
+  const [panelDate, setPanelDate] = useState<string | null>(null);
+  const [panelAssignments, setPanelAssignments] = useState<Record<string, string>>({});
+  const [savingPanel, setSavingPanel] = useState(false);
+  const [applyingToWeekday, setApplyingToWeekday] = useState(false);
 
   // Generating month schedules
   const [generating, setGenerating] = useState(false);
@@ -187,7 +192,6 @@ export default function SchedulesPage() {
   // ── Compute student counts per dow+slot ──
 
   const studentsByDowSlot = useMemo(() => {
-    // Map: dow (0-6) → slot → student list
     const map: Record<number, Record<string, Student[]>> = {};
     for (let d = 0; d <= 6; d++) {
       map[d] = { morning: [], afternoon: [], evening: [] };
@@ -217,6 +221,26 @@ export default function SchedulesPage() {
     return map;
   }, [schedules, yearMonth]);
 
+  // ── Instructor assignments per date from schedule data ──
+
+  const instructorByDateSlot = useMemo(() => {
+    const map: Record<string, number | null> = {};
+    for (const s of schedules) {
+      if (s.class_date && s.class_date.startsWith(yearMonth) && s.instructor_id) {
+        map[`${s.class_date}|${s.time_slot}`] = s.instructor_id;
+      }
+    }
+    return map;
+  }, [schedules, yearMonth]);
+
+  const instructorMap = useMemo(() => {
+    const map: Record<number, string> = {};
+    for (const inst of instructors) {
+      map[inst.id] = inst.name;
+    }
+    return map;
+  }, [instructors]);
+
   // ── Month navigation ──
 
   function changeMonth(delta: number) {
@@ -226,6 +250,7 @@ export default function SchedulesPage() {
     else if (m > 12) { m = 1; y += 1; }
     setYear(y);
     setMonth(m);
+    setPanelDate(null);
   }
 
   const isToday = (day: number) =>
@@ -246,7 +271,7 @@ export default function SchedulesPage() {
           if (stuCount === 0) continue;
 
           const key = `${dateStr}|${slot}`;
-          if (scheduleByDateSlot[key]) continue; // already exists
+          if (scheduleByDateSlot[key]) continue;
 
           await schedulesAPI.create({
             class_date: dateStr,
@@ -269,26 +294,125 @@ export default function SchedulesPage() {
     }
   }
 
-  // ── Slot click → open detail modal ──
+  // ── Date click → open instructor panel ──
 
-  async function handleSlotClick(dateStr: string, slot: TimeSlot) {
+  function handleDateClick(day: number) {
+    const dateStr = fmtDate(year, month, day);
+    setPanelDate(dateStr);
+
+    // Load current instructor assignments from schedule data
+    const assignments: Record<string, string> = {};
+    for (const slot of SLOT_ORDER) {
+      const key = `${dateStr}|${slot}`;
+      const sched = scheduleByDateSlot[key];
+      assignments[slot] = sched?.instructor_id ? String(sched.instructor_id) : "none";
+    }
+    setPanelAssignments(assignments);
+  }
+
+  // ── Save instructor assignments for panel date ──
+
+  async function handleSavePanelAssignments() {
+    if (!panelDate) return;
+    setSavingPanel(true);
+    try {
+      for (const slot of SLOT_ORDER) {
+        const instId = panelAssignments[slot];
+        const key = `${panelDate}|${slot}`;
+        const sched = scheduleByDateSlot[key];
+        const newInstId = instId === "none" ? null : Number(instId);
+
+        if (sched) {
+          // Update existing schedule record
+          if (sched.instructor_id !== newInstId) {
+            await schedulesAPI.update(sched.id, { instructor_id: newInstId });
+          }
+        } else if (newInstId) {
+          // Create new schedule record with instructor
+          await schedulesAPI.create({
+            class_date: panelDate,
+            time_slot: slot,
+            name: `${TIME_SLOT_LABELS[slot]}반`,
+            instructor_id: newInstId,
+          });
+        }
+      }
+      toast.success("강사 배정이 저장되었습니다");
+      await fetchAll();
+    } catch {
+      toast.error("강사 배정에 실패했습니다");
+    } finally {
+      setSavingPanel(false);
+    }
+  }
+
+  // ── Copy assignments to all same weekdays in month ──
+
+  async function handleApplyToWeekday() {
+    if (!panelDate) return;
+    const panelDow = new Date(panelDate).getDay();
+
+    setApplyingToWeekday(true);
+    try {
+      let updated = 0;
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dow = getDow(year, month, d);
+        if (dow !== panelDow) continue;
+
+        const dateStr = fmtDate(year, month, d);
+        if (dateStr === panelDate) continue; // skip the source date
+
+        for (const slot of SLOT_ORDER) {
+          const instId = panelAssignments[slot];
+          const newInstId = instId === "none" ? null : Number(instId);
+          const key = `${dateStr}|${slot}`;
+          const sched = scheduleByDateSlot[key];
+
+          if (sched) {
+            if (sched.instructor_id !== newInstId) {
+              await schedulesAPI.update(sched.id, { instructor_id: newInstId });
+              updated++;
+            }
+          } else if (newInstId) {
+            await schedulesAPI.create({
+              class_date: dateStr,
+              time_slot: slot,
+              name: `${TIME_SLOT_LABELS[slot]}반`,
+              instructor_id: newInstId,
+            });
+            updated++;
+          }
+        }
+      }
+      if (updated > 0) {
+        toast.success(`같은 요일 ${updated}건에 적용되었습니다`);
+        await fetchAll();
+      } else {
+        toast.info("변경할 내용이 없습니다");
+      }
+    } catch {
+      toast.error("일괄 적용에 실패했습니다");
+    } finally {
+      setApplyingToWeekday(false);
+    }
+  }
+
+  // ── Slot click → open attendance modal ──
+
+  async function handleSlotClick(e: React.MouseEvent, dateStr: string, slot: TimeSlot) {
+    e.stopPropagation(); // don't trigger date click
     setSelectedDate(dateStr);
     setSelectedSlot(slot);
     setSlotModalOpen(true);
     setSlotStudents([]);
     setAttendanceMap({});
     setSlotSchedule(null);
-    setSlotInstructorId("none");
 
     const key = `${dateStr}|${slot}`;
     const sched = scheduleByDateSlot[key] ?? null;
     setSlotSchedule(sched);
 
-    if (sched?.instructor_id) {
-      setSlotInstructorId(String(sched.instructor_id));
-    }
-
-    // Load attendance if schedule exists
+    // Load attendance
     if (sched) {
       try {
         const { data } = await schedulesAPI.attendance(sched.id);
@@ -300,49 +424,18 @@ export default function SchedulesPage() {
         }
         setAttendanceMap(map);
       } catch {
-        // derive from student data
         const dow = new Date(dateStr).getDay();
         const studs = studentsByDowSlot[dow]?.[slot] ?? [];
         setSlotStudents(studs.map((s) => ({ student_id: s.id, student_name: s.name, status: null })));
       }
     } else {
-      // No schedule record yet - show student list from data
       const dow = new Date(dateStr).getDay();
       const studs = studentsByDowSlot[dow]?.[slot] ?? [];
       setSlotStudents(studs.map((s) => ({ student_id: s.id, student_name: s.name, status: null })));
     }
   }
 
-  // ── Assign instructor to slot ──
-
-  async function handleAssignInstructor(instructorId: string) {
-    setSavingInstructor(true);
-    setSlotInstructorId(instructorId);
-    try {
-      const instId = instructorId === "none" ? null : Number(instructorId);
-      if (slotSchedule) {
-        // Update existing
-        await schedulesAPI.update(slotSchedule.id, { instructor_id: instId });
-      } else {
-        // Create new schedule record
-        const res = await schedulesAPI.create({
-          class_date: selectedDate,
-          time_slot: selectedSlot,
-          name: `${TIME_SLOT_LABELS[selectedSlot]}반`,
-          instructor_id: instId,
-        });
-        setSlotSchedule(res.data);
-      }
-      toast.success("강사가 배정되었습니다");
-      fetchAll();
-    } catch {
-      toast.error("강사 배정에 실패했습니다");
-    } finally {
-      setSavingInstructor(false);
-    }
-  }
-
-  // ── Mark attendance ──
+  // ── Attendance helpers ──
 
   function toggleAttendance(studentId: number, status: string) {
     setAttendanceMap((prev) => {
@@ -391,19 +484,45 @@ export default function SchedulesPage() {
     ? `${selectedDate.replace(/-/g, ".")} (${DAY_LABELS[selectedDow]})`
     : "";
 
+  const panelDow = panelDate ? new Date(panelDate).getDay() : 0;
+  const panelDayLabel = panelDate
+    ? `${panelDate.replace(/-/g, ".")} (${DAY_LABELS[panelDow]})`
+    : "";
+
+  // Count how many dates have instructors assigned
+  const assignedDayCount = useMemo(() => {
+    const datesWithInstructor = new Set<string>();
+    for (const key of Object.keys(instructorByDateSlot)) {
+      const date = key.split("|")[0];
+      datesWithInstructor.add(date);
+    }
+    return datesWithInstructor.size;
+  }, [instructorByDateSlot]);
+
   return (
     <div>
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-900">수업 일정</h1>
-        <Button onClick={handleGenerateMonth} disabled={generating}>
-          {generating ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <CalendarPlus className="h-4 w-4" />
-          )}
-          {generating ? "생성 중..." : "월 스케줄 생성"}
-        </Button>
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">수업 일정</h1>
+          <p className="text-sm text-slate-500">
+            날짜를 클릭하여 강사를 배정하세요 &middot; 시간대를 클릭하면 출석부가 열립니다
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-xs">
+            <UserCheck className="mr-1 h-3 w-3" />
+            강사 배정 {assignedDayCount}일
+          </Badge>
+          <Button onClick={handleGenerateMonth} disabled={generating} size="sm">
+            {generating ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <CalendarPlus className="h-4 w-4" />
+            )}
+            {generating ? "생성 중..." : "월 스케줄 생성"}
+          </Button>
+        </div>
       </div>
 
       {/* Month navigation */}
@@ -419,125 +538,290 @@ export default function SchedulesPage() {
         </Button>
       </div>
 
-      {/* Calendar grid */}
-      {loading ? (
-        <div className="flex h-48 items-center justify-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-slate-200">
-          {/* Day header */}
-          <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
-            {DAY_LABELS.map((label, i) => (
-              <div
-                key={i}
-                className={`py-2 text-center text-xs font-medium ${
-                  i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-slate-500"
-                }`}
-              >
-                {label}
-              </div>
-            ))}
-          </div>
-
-          {/* Calendar weeks */}
-          {weeks.map((week, wi) => (
-            <div key={wi} className="grid grid-cols-7 border-b border-slate-100 last:border-b-0">
-              {week.map((day, di) => {
-                if (day === null) {
-                  return <div key={di} className="min-h-[90px] bg-slate-50/50" />;
-                }
-                const dateStr = fmtDate(year, month, day);
-                const dow = getDow(year, month, day);
-                const todayClass = isToday(day);
-
-                return (
+      {/* Main layout: Calendar + Panel */}
+      <div className="flex gap-4">
+        {/* Calendar */}
+        <div className="min-w-0 flex-1">
+          {loading ? (
+            <div className="flex h-48 items-center justify-center">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-slate-200">
+              {/* Day header */}
+              <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
+                {DAY_LABELS.map((label, i) => (
                   <div
-                    key={di}
-                    className={`min-h-[90px] border-r border-slate-100 p-1 last:border-r-0 ${
-                      todayClass ? "bg-blue-50/50" : ""
+                    key={i}
+                    className={`py-2 text-center text-xs font-medium ${
+                      i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-slate-500"
                     }`}
                   >
-                    <span
-                      className={`mb-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-medium ${
-                        todayClass
-                          ? "bg-blue-600 text-white"
-                          : di === 0
-                            ? "text-red-500"
-                            : di === 6
-                              ? "text-blue-500"
-                              : "text-slate-700"
-                      }`}
-                    >
-                      {day}
-                    </span>
-                    {/* 3 time slots */}
-                    <div className="space-y-0.5">
-                      {SLOT_ORDER.map((slot) => {
-                        const stuCount = studentsByDowSlot[dow]?.[slot]?.length ?? 0;
-                        if (stuCount === 0) return null;
+                    {label}
+                  </div>
+                ))}
+              </div>
 
-                        const key = `${dateStr}|${slot}`;
-                        const sched = scheduleByDateSlot[key];
-                        const colors = SLOT_COLORS[slot];
-                        const hasInstructor = sched?.instructor_id != null;
-                        const attended = sched?.attendance_taken;
+              {/* Calendar weeks */}
+              {weeks.map((week, wi) => (
+                <div key={wi} className="grid grid-cols-7 border-b border-slate-100 last:border-b-0">
+                  {week.map((day, di) => {
+                    if (day === null) {
+                      return <div key={di} className="min-h-[90px] bg-slate-50/50" />;
+                    }
+                    const dateStr = fmtDate(year, month, day);
+                    const dow = getDow(year, month, day);
+                    const todayClass = isToday(day);
+                    const isPanelActive = panelDate === dateStr;
 
-                        return (
-                          <button
-                            key={slot}
-                            onClick={() => handleSlotClick(dateStr, slot)}
-                            className={`flex w-full items-center gap-0.5 rounded px-1 py-0.5 text-[10px] leading-tight transition-colors hover:ring-1 hover:ring-slate-300 ${
-                              attended
-                                ? "bg-green-50 text-green-700 ring-1 ring-green-200"
-                                : `${colors.bg} ${colors.text}`
+                    // Count assigned instructors for this date
+                    const assignedSlots = SLOT_ORDER.filter(
+                      (s) => instructorByDateSlot[`${dateStr}|${s}`]
+                    ).length;
+
+                    return (
+                      <div
+                        key={di}
+                        onClick={() => handleDateClick(day)}
+                        className={`min-h-[90px] cursor-pointer border-r border-slate-100 p-1 transition-colors last:border-r-0 ${
+                          isPanelActive
+                            ? "bg-violet-50 ring-2 ring-inset ring-violet-300"
+                            : todayClass
+                              ? "bg-blue-50/50 hover:bg-blue-50"
+                              : "hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className="mb-0.5 flex items-center justify-between">
+                          <span
+                            className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-medium ${
+                              todayClass
+                                ? "bg-blue-600 text-white"
+                                : di === 0
+                                  ? "text-red-500"
+                                  : di === 6
+                                    ? "text-blue-500"
+                                    : "text-slate-700"
                             }`}
                           >
-                            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${colors.dot}`} />
-                            <span className="truncate font-medium">
-                              {TIME_SLOT_LABELS[slot]}
+                            {day}
+                          </span>
+                          {assignedSlots > 0 && (
+                            <span className="flex items-center gap-0.5 text-[9px] font-medium text-violet-600">
+                              <UserCheck className="h-2.5 w-2.5" />
+                              {assignedSlots}
                             </span>
-                            <span className="ml-auto flex shrink-0 items-center gap-0.5">
-                              <Users className="h-2.5 w-2.5" />
-                              {stuCount}
-                            </span>
-                            {hasInstructor && (
-                              <UserCheck className="h-2.5 w-2.5 shrink-0 text-violet-500" />
-                            )}
-                            {attended && (
-                              <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      )}
+                          )}
+                        </div>
+                        {/* 3 time slots */}
+                        <div className="space-y-0.5">
+                          {SLOT_ORDER.map((slot) => {
+                            const stuCount = studentsByDowSlot[dow]?.[slot]?.length ?? 0;
+                            if (stuCount === 0) return null;
 
-      {/* Legend */}
-      <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-500">
-        {SLOT_ORDER.map((slot) => (
-          <div key={slot} className="flex items-center gap-1.5">
-            <span className={`h-2.5 w-2.5 rounded-full ${SLOT_COLORS[slot].dot}`} />
-            {TIME_SLOT_LABELS[slot]}
+                            const key = `${dateStr}|${slot}`;
+                            const sched = scheduleByDateSlot[key];
+                            const colors = SLOT_COLORS[slot];
+                            const hasInstructor = sched?.instructor_id != null;
+                            const attended = sched?.attendance_taken;
+                            const instName = sched?.instructor_id
+                              ? instructorMap[sched.instructor_id]
+                              : null;
+
+                            return (
+                              <button
+                                key={slot}
+                                onClick={(e) => handleSlotClick(e, dateStr, slot)}
+                                className={`flex w-full items-center gap-0.5 rounded px-1 py-0.5 text-[10px] leading-tight transition-colors hover:ring-1 hover:ring-slate-300 ${
+                                  attended
+                                    ? "bg-green-50 text-green-700 ring-1 ring-green-200"
+                                    : `${colors.bg} ${colors.text}`
+                                }`}
+                              >
+                                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${colors.dot}`} />
+                                <span className="truncate font-medium">
+                                  {instName ? instName : TIME_SLOT_LABELS[slot]}
+                                </span>
+                                <span className="ml-auto flex shrink-0 items-center gap-0.5">
+                                  <Users className="h-2.5 w-2.5" />
+                                  {stuCount}
+                                </span>
+                                {attended && (
+                                  <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Legend */}
+          <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-500">
+            {SLOT_ORDER.map((slot) => (
+              <div key={slot} className="flex items-center gap-1.5">
+                <span className={`h-2.5 w-2.5 rounded-full ${SLOT_COLORS[slot].dot}`} />
+                {TIME_SLOT_LABELS[slot]}
+              </div>
+            ))}
+            <div className="flex items-center gap-1.5">
+              <UserCheck className="h-3 w-3 text-violet-500" />
+              강사 배정
+            </div>
+            <div className="flex items-center gap-1.5">
+              <CheckCircle2 className="h-3 w-3 text-green-500" />
+              출석 완료
+            </div>
           </div>
-        ))}
-        <div className="flex items-center gap-1.5">
-          <UserCheck className="h-3 w-3 text-violet-500" />
-          강사 배정
         </div>
-        <div className="flex items-center gap-1.5">
-          <CheckCircle2 className="h-3 w-3 text-green-500" />
-          출석 완료
-        </div>
+
+        {/* ── Instructor Assignment Panel (Right Sidebar) ── */}
+        {panelDate && (
+          <div className="w-72 shrink-0 xl:w-80">
+            <Card className="sticky top-4">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">강사 배정</CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => setPanelDate(null)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-sm font-medium text-slate-600">{panelDayLabel}</p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Time slot sections */}
+                {SLOT_ORDER.map((slot) => {
+                  const colors = SLOT_COLORS[slot];
+                  const dow = new Date(panelDate).getDay();
+                  const stuCount = studentsByDowSlot[dow]?.[slot]?.length ?? 0;
+                  const currentInstId = panelAssignments[slot] ?? "none";
+
+                  return (
+                    <div key={slot} className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2.5 w-2.5 rounded-full ${colors.dot}`} />
+                          <span className="text-sm font-medium text-slate-700">
+                            {TIME_SLOT_LABELS[slot]}
+                          </span>
+                        </div>
+                        {stuCount > 0 && (
+                          <Badge variant="secondary" className="h-5 text-[10px]">
+                            <Users className="mr-0.5 h-2.5 w-2.5" />
+                            {stuCount}명
+                          </Badge>
+                        )}
+                      </div>
+                      <Select
+                        value={currentInstId}
+                        onValueChange={(v) =>
+                          setPanelAssignments((prev) => ({ ...prev, [slot]: v }))
+                        }
+                      >
+                        <SelectTrigger
+                          className={`w-full ${
+                            currentInstId !== "none"
+                              ? "border-violet-200 bg-violet-50 text-violet-700"
+                              : ""
+                          }`}
+                        >
+                          <SelectValue placeholder="강사 선택" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">미배정</SelectItem>
+                          {instructors.map((inst) => (
+                            <SelectItem key={inst.id} value={String(inst.id)}>
+                              {inst.name}
+                              {inst.salary_type && (
+                                <span className="ml-1 text-xs text-slate-400">
+                                  ({inst.salary_type === "hourly"
+                                    ? "시급"
+                                    : inst.salary_type === "per_class"
+                                      ? "건당"
+                                      : inst.salary_type === "monthly"
+                                        ? "월급"
+                                        : "혼합"})
+                                </span>
+                              )}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  );
+                })}
+
+                {/* Action buttons */}
+                <div className="space-y-2 border-t pt-3">
+                  <Button
+                    onClick={handleSavePanelAssignments}
+                    disabled={savingPanel}
+                    className="w-full"
+                  >
+                    {savingPanel ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                    {savingPanel ? "저장 중..." : "저장"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleApplyToWeekday}
+                    disabled={applyingToWeekday}
+                    className="w-full"
+                  >
+                    {applyingToWeekday ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                    {applyingToWeekday
+                      ? "적용 중..."
+                      : `이번달 모든 ${DAY_LABELS[panelDow]}요일에 적용`}
+                  </Button>
+                </div>
+
+                {/* Current month instructor summary */}
+                <div className="border-t pt-3">
+                  <p className="mb-2 text-xs font-medium text-slate-500">이번달 배정 현황</p>
+                  <div className="space-y-1">
+                    {instructors.map((inst) => {
+                      const count = Object.entries(instructorByDateSlot).filter(
+                        ([, id]) => id === inst.id
+                      ).length;
+                      if (count === 0) return null;
+                      return (
+                        <div
+                          key={inst.id}
+                          className="flex items-center justify-between text-xs"
+                        >
+                          <span className="text-slate-600">{inst.name}</span>
+                          <span className="font-medium text-slate-800">{count}건</span>
+                        </div>
+                      );
+                    })}
+                    {Object.keys(instructorByDateSlot).length === 0 && (
+                      <p className="text-xs text-slate-400">아직 배정된 강사가 없습니다</p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
 
-      {/* ── Slot Detail Modal ── */}
+      {/* ── Attendance Modal ── */}
       <Dialog open={slotModalOpen} onOpenChange={setSlotModalOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
@@ -551,29 +835,6 @@ export default function SchedulesPage() {
           </DialogHeader>
 
           <div className="space-y-4">
-            {/* Instructor assignment */}
-            <div className="flex items-center gap-3 rounded-md bg-slate-50 p-3">
-              <span className="text-sm font-medium text-slate-700">담당 강사</span>
-              <Select
-                value={slotInstructorId}
-                onValueChange={handleAssignInstructor}
-                disabled={savingInstructor}
-              >
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="강사 선택" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">미배정</SelectItem>
-                  {instructors.map((inst) => (
-                    <SelectItem key={inst.id} value={String(inst.id)}>
-                      {inst.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {savingInstructor && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
-            </div>
-
             {/* Student attendance list */}
             {slotStudents.length === 0 ? (
               <p className="py-6 text-center text-sm text-slate-400">
