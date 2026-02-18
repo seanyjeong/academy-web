@@ -124,7 +124,6 @@ export default function SchedulesPage() {
 
   // Instructor schedule
   const [instructors, setInstructors] = useState<Instructor[]>([]);
-  const [showInstructors, setShowInstructors] = useState(false);
 
   const yearMonth = `${year}-${String(month).padStart(2, "0")}`;
   const weeks = useMemo(() => getCalendarDays(year, month), [year, month]);
@@ -158,6 +157,18 @@ export default function SchedulesPage() {
       }
     })();
   }, []);
+
+  // Map instructor work_days to day-of-week for calendar overlay
+  const instructorsByDow = useMemo(() => {
+    const map: Record<number, Instructor[]> = {};
+    for (const inst of instructors) {
+      for (const day of inst.work_days ?? []) {
+        if (!map[day]) map[day] = [];
+        map[day].push(inst);
+      }
+    }
+    return map;
+  }, [instructors]);
 
   // Map schedules to calendar dates
   // Schedules have class_date (specific date) or day_of_week (recurring weekly)
@@ -376,68 +387,6 @@ export default function SchedulesPage() {
         </Dialog>
       </div>
 
-      {/* Instructor work days */}
-      {instructors.length > 0 && (
-        <div className="mb-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mb-2 text-xs text-slate-500"
-            onClick={() => setShowInstructors(!showInstructors)}
-          >
-            <Users className="mr-1 h-3.5 w-3.5" />
-            강사 출근일 {showInstructors ? "접기" : "보기"} ({instructors.length}명)
-          </Button>
-          {showInstructors && (
-            <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3 space-y-2">
-              {instructors.map((inst) => {
-                const workDays = inst.work_days ?? [];
-                return (
-                  <div key={inst.id} className="flex items-center gap-3">
-                    <span className="w-16 text-sm font-medium truncate">{inst.name}</span>
-                    <div className="flex gap-1">
-                      {[1, 2, 3, 4, 5, 6].map((day) => {
-                        const active = workDays.includes(day);
-                        return (
-                          <button
-                            key={day}
-                            className={`h-7 w-8 rounded text-xs font-medium transition-colors ${
-                              active
-                                ? "bg-blue-600 text-white"
-                                : "bg-white text-slate-400 border border-slate-200 hover:border-blue-300"
-                            }`}
-                            onClick={async () => {
-                              const newDays = active
-                                ? workDays.filter((d) => d !== day)
-                                : [...workDays, day].sort((a, b) => a - b);
-                              try {
-                                await instructorsAPI.update(inst.id, { work_days: newDays });
-                                setInstructors((prev) =>
-                                  prev.map((i) => i.id === inst.id ? { ...i, work_days: newDays } : i)
-                                );
-                              } catch {
-                                toast.error("저장 실패");
-                              }
-                            }}
-                          >
-                            {DAY_LABELS[day]}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {inst.time_slot && (
-                      <Badge variant="outline" className="text-xs">
-                        {TIME_SLOT_LABELS[inst.time_slot as TimeSlot] ?? inst.time_slot}
-                      </Badge>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Month navigation */}
       <div className="mb-4 flex items-center justify-center gap-3">
         <Button variant="outline" size="icon" onClick={() => changeMonth(-1)}>
@@ -483,6 +432,8 @@ export default function SchedulesPage() {
                 const daySchedules = schedulesByDate[dateStr] ?? [];
                 const hasSchedules = daySchedules.length > 0;
                 const todayClass = isToday(day);
+                const dow = getDayOfWeek(year, month, day);
+                const dayInstructors = instructorsByDow[dow] ?? [];
 
                 // Collect unique time slots
                 const timeSlots = [...new Set(daySchedules.map((s) => s.time_slot))];
@@ -542,6 +493,19 @@ export default function SchedulesPage() {
                             +{daySchedules.length - 2}
                           </div>
                         )}
+                      </div>
+                    )}
+                    {dayInstructors.length > 0 && (
+                      <div className="mt-auto flex flex-wrap gap-0.5 pt-0.5">
+                        {dayInstructors.map((inst) => (
+                          <span
+                            key={inst.id}
+                            className="rounded bg-violet-50 px-1 text-[9px] leading-tight text-violet-600"
+                            title={inst.name}
+                          >
+                            {inst.name.length > 3 ? inst.name.slice(0, 3) : inst.name}
+                          </span>
+                        ))}
                       </div>
                     )}
                   </button>
