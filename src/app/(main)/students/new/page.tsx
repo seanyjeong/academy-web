@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/select";
 import { studentsAPI } from "@/lib/api/students";
 import { paymentsAPI } from "@/lib/api/payments";
-import { schedulesAPI } from "@/lib/api/schedules";
 import type {
   StudentFormData,
   StudentType,
@@ -321,42 +320,8 @@ export default function NewStudentPage() {
         }
       }
 
-      // 2. Auto-create date-specific schedules for remaining days in the month
-      if (form.class_days.length > 0 && form.time_slot) {
-        try {
-          const slotLabel = TIME_SLOT_LABELS[form.time_slot as TimeSlot] ?? form.time_slot;
-          const enrollDate = new Date();
-          const enrollDay = enrollDate.getDate();
-          const enrollYear = enrollDate.getFullYear();
-          const enrollMonth = enrollDate.getMonth();
-
-          // Fetch existing schedules to avoid duplicates
-          const { data: existingData } = await schedulesAPI.list();
-          const existing: { class_date?: string; time_slot?: string }[] =
-            Array.isArray(existingData) ? existingData : existingData.items ?? [];
-
-          const totalDaysInMonth = new Date(enrollYear, enrollMonth + 1, 0).getDate();
-          for (let d = enrollDay; d <= totalDaysInMonth; d++) {
-            const date = new Date(enrollYear, enrollMonth, d);
-            const dow = date.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-            if (!form.class_days.includes(dow)) continue;
-
-            const dateStr = `${enrollYear}-${String(enrollMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-            const alreadyExists = existing.some(
-              (s) => s.class_date === dateStr && s.time_slot === form.time_slot
-            );
-            if (!alreadyExists) {
-              await schedulesAPI.create({
-                name: `${slotLabel}반`,
-                time_slot: form.time_slot,
-                class_date: dateStr,
-              });
-            }
-          }
-        } catch {
-          // Schedule creation is best-effort
-        }
-      }
+      // Schedule records are created on-demand (instructor assignment / attendance)
+      // Calendar renders directly from student class_days + time_slot data
 
       toast.success("학생이 등록되었습니다");
       router.push("/students");

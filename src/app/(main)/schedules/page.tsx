@@ -6,10 +6,8 @@ import {
   ChevronRight,
   Users,
   CheckCircle2,
-  XCircle,
   UserCheck,
   Loader2,
-  CalendarPlus,
   X,
   Copy,
   Save,
@@ -40,6 +38,12 @@ import type { TimeSlot } from "@/lib/types/student";
 
 // ── Types ──
 
+interface TrialDateEntry {
+  date: string;
+  time_slot: string;
+  attended?: boolean;
+}
+
 interface Student {
   id: number;
   name: string;
@@ -47,6 +51,7 @@ interface Student {
   class_days?: number[] | string;
   time_slot?: string;
   is_trial?: boolean;
+  trial_dates?: TrialDateEntry[] | string | null;
 }
 
 interface ScheduleRecord {
@@ -153,9 +158,6 @@ export default function SchedulesPage() {
   const [savingPanel, setSavingPanel] = useState(false);
   const [applyingToWeekday, setApplyingToWeekday] = useState(false);
 
-  // Generating month schedules
-  const [generating, setGenerating] = useState(false);
-
   const yearMonth = `${year}-${String(month).padStart(2, "0")}`;
   const weeks = useMemo(() => getCalendarDays(year, month), [year, month]);
   const daysInMonth = new Date(year, month, 0).getDate();
@@ -189,7 +191,7 @@ export default function SchedulesPage() {
     fetchAll();
   }, [fetchAll]);
 
-  // ── Compute student counts per dow+slot ──
+  // ── Compute student counts per dow+slot (regular students) ──
 
   const studentsByDowSlot = useMemo(() => {
     const map: Record<number, Record<string, Student[]>> = {};
@@ -197,6 +199,7 @@ export default function SchedulesPage() {
       map[d] = { morning: [], afternoon: [], evening: [] };
     }
     for (const s of students) {
+      if (s.is_trial) continue; // trial students use specific dates
       const days = parseClassDays(s.class_days);
       const slot = s.time_slot || "morning";
       for (const d of days) {
@@ -207,6 +210,48 @@ export default function SchedulesPage() {
     }
     return map;
   }, [students]);
+
+  // ── Compute trial students per specific date+slot ──
+
+  const trialByDateSlot = useMemo(() => {
+    const map: Record<string, Student[]> = {};
+    for (const s of students) {
+      if (!s.is_trial) continue;
+      let dates: TrialDateEntry[] = [];
+      if (typeof s.trial_dates === "string") {
+        try { dates = JSON.parse(s.trial_dates); } catch { /* ignore */ }
+      } else if (Array.isArray(s.trial_dates)) {
+        dates = s.trial_dates;
+      }
+      for (const td of dates) {
+        const key = `${td.date}|${td.time_slot}`;
+        if (!map[key]) map[key] = [];
+        map[key].push(s);
+      }
+      // Fallback: trial student with class_days but no trial_dates
+      if (dates.length === 0) {
+        const days = parseClassDays(s.class_days);
+        const slot = s.time_slot || "morning";
+        for (let d = 1; d <= daysInMonth; d++) {
+          const dow = getDow(year, month, d);
+          if (!days.includes(dow)) continue;
+          const key = `${fmtDate(year, month, d)}|${slot}`;
+          if (!map[key]) map[key] = [];
+          map[key].push(s);
+        }
+      }
+    }
+    return map;
+  }, [students, year, month, daysInMonth]);
+
+  // ── Helper: get all students for a specific date+slot ──
+
+  function getStudentsForDateSlot(dateStr: string, slot: string): Student[] {
+    const dow = new Date(dateStr).getDay();
+    const regular = studentsByDowSlot[dow]?.[slot] ?? [];
+    const trial = trialByDateSlot[`${dateStr}|${slot}`] ?? [];
+    return [...regular, ...trial];
+  }
 
   // ── Map schedules by date+slot for quick lookup ──
 
@@ -256,42 +301,19 @@ export default function SchedulesPage() {
   const isToday = (day: number) =>
     year === today.getFullYear() && month === today.getMonth() + 1 && day === today.getDate();
 
-  // ── Generate monthly schedules ──
+  // ── Ensure a ClassSchedule record exists for date+slot, return its id ──
 
-  async function handleGenerateMonth() {
-    setGenerating(true);
-    let created = 0;
-    try {
-      for (let d = 1; d <= daysInMonth; d++) {
-        const dow = getDow(year, month, d);
-        const dateStr = fmtDate(year, month, d);
+  async function ensureScheduleRecord(dateStr: string, slot: TimeSlot): Promise<ScheduleRecord> {
+    const key = `${dateStr}|${slot}`;
+    const existing = scheduleByDateSlot[key];
+    if (existing) return existing;
 
-        for (const slot of SLOT_ORDER) {
-          const stuCount = studentsByDowSlot[dow]?.[slot]?.length ?? 0;
-          if (stuCount === 0) continue;
-
-          const key = `${dateStr}|${slot}`;
-          if (scheduleByDateSlot[key]) continue;
-
-          await schedulesAPI.create({
-            class_date: dateStr,
-            time_slot: slot,
-            name: `${TIME_SLOT_LABELS[slot]}반`,
-          });
-          created++;
-        }
-      }
-      if (created > 0) {
-        toast.success(`${created}개 스케줄이 생성되었습니다`);
-        fetchAll();
-      } else {
-        toast.info("이미 모든 스케줄이 생성되어 있습니다");
-      }
-    } catch {
-      toast.error("스케줄 생성 중 오류가 발생했습니다");
-    } finally {
-      setGenerating(false);
-    }
+    const { data } = await schedulesAPI.create({
+      class_date: dateStr,
+      time_slot: slot,
+      name: `${TIME_SLOT_LABELS[slot]}반`,
+    });
+    return data;
   }
 
   // ── Date click → open instructor panel ──
@@ -412,25 +434,36 @@ export default function SchedulesPage() {
     const sched = scheduleByDateSlot[key] ?? null;
     setSlotSchedule(sched);
 
-    // Load attendance
+    // Build student list from data (always up-to-date)
+    const allStuds = getStudentsForDateSlot(dateStr, slot);
+    const fallbackList = allStuds.map((s) => ({
+      student_id: s.id,
+      student_name: s.name,
+      status: null,
+    }));
+
+    // Load attendance if schedule record exists
     if (sched) {
       try {
         const { data } = await schedulesAPI.attendance(sched.id);
         const list: AttendanceRecord[] = data.students ?? data ?? [];
-        setSlotStudents(list);
+        // Merge: attendance records + any new students not yet in attendance
+        const attendedIds = new Set(list.map((a) => a.student_id));
+        const merged = [
+          ...list,
+          ...fallbackList.filter((s) => !attendedIds.has(s.student_id)),
+        ];
+        setSlotStudents(merged);
         const map: Record<number, string> = {};
         for (const a of list) {
           if (a.status) map[a.student_id] = a.status;
         }
         setAttendanceMap(map);
       } catch {
-        const dow = new Date(dateStr).getDay();
-        const studs = studentsByDowSlot[dow]?.[slot] ?? [];
-        setSlotStudents(studs.map((s) => ({ student_id: s.id, student_name: s.name, status: null })));
+        setSlotStudents(fallbackList);
       }
     } else {
-      const dow = new Date(dateStr).getDay();
-      const studs = studentsByDowSlot[dow]?.[slot] ?? [];
+      const studs = allStuds;
       setSlotStudents(studs.map((s) => ({ student_id: s.id, student_name: s.name, status: null })));
     }
   }
@@ -457,17 +490,25 @@ export default function SchedulesPage() {
   }
 
   async function handleSaveAttendance() {
-    if (!slotSchedule) {
-      toast.error("먼저 스케줄을 생성해주세요 (월 스케줄 생성)");
-      return;
-    }
     setSavingAttendance(true);
     try {
+      // Auto-create schedule record if it doesn't exist
+      let sched = slotSchedule;
+      if (!sched) {
+        const { data } = await schedulesAPI.create({
+          class_date: selectedDate,
+          time_slot: selectedSlot,
+          name: `${TIME_SLOT_LABELS[selectedSlot]}반`,
+        });
+        sched = data;
+        setSlotSchedule(data);
+      }
+
       const records = slotStudents.map((s) => ({
         student_id: s.student_id,
         status: attendanceMap[s.student_id] ?? "present",
       }));
-      await schedulesAPI.markAttendance(slotSchedule.id, { records });
+      await schedulesAPI.markAttendance(sched!.id, { records });
       toast.success("출석이 저장되었습니다");
       fetchAll();
     } catch {
@@ -509,20 +550,10 @@ export default function SchedulesPage() {
             날짜를 클릭하여 강사를 배정하세요 &middot; 시간대를 클릭하면 출석부가 열립니다
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-xs">
-            <UserCheck className="mr-1 h-3 w-3" />
-            강사 배정 {assignedDayCount}일
-          </Badge>
-          <Button onClick={handleGenerateMonth} disabled={generating} size="sm">
-            {generating ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <CalendarPlus className="h-4 w-4" />
-            )}
-            {generating ? "생성 중..." : "월 스케줄 생성"}
-          </Button>
-        </div>
+        <Badge variant="outline" className="text-xs">
+          <UserCheck className="mr-1 h-3 w-3" />
+          강사 배정 {assignedDayCount}일
+        </Badge>
       </div>
 
       {/* Month navigation */}
@@ -615,7 +646,9 @@ export default function SchedulesPage() {
                         {/* 3 time slots */}
                         <div className="space-y-0.5">
                           {SLOT_ORDER.map((slot) => {
-                            const stuCount = studentsByDowSlot[dow]?.[slot]?.length ?? 0;
+                            const slotStudents = getStudentsForDateSlot(dateStr, slot);
+                            const stuCount = slotStudents.length;
+                            const hasTrial = slotStudents.some((s) => s.is_trial);
                             if (stuCount === 0) return null;
 
                             const key = `${dateStr}|${slot}`;
@@ -644,6 +677,9 @@ export default function SchedulesPage() {
                                 <span className="ml-auto flex shrink-0 items-center gap-0.5">
                                   <Users className="h-2.5 w-2.5" />
                                   {stuCount}
+                                  {hasTrial && (
+                                    <span className="text-[8px] text-pink-500" title="체험학생 포함">T</span>
+                                  )}
                                 </span>
                                 {attended && (
                                   <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />
@@ -701,8 +737,7 @@ export default function SchedulesPage() {
                 {/* Time slot sections */}
                 {SLOT_ORDER.map((slot) => {
                   const colors = SLOT_COLORS[slot];
-                  const dow = new Date(panelDate).getDay();
-                  const stuCount = studentsByDowSlot[dow]?.[slot]?.length ?? 0;
+                  const stuCount = getStudentsForDateSlot(panelDate, slot).length;
                   const currentInstId = panelAssignments[slot] ?? "none";
 
                   return (
