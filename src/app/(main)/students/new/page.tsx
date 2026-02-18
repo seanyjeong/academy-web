@@ -267,16 +267,43 @@ export default function NewStudentPage() {
         try {
           const now = new Date();
           const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+          const todayDay = now.getDate();
+
+          // Prorated calculation if mid-month enrollment
+          let paymentAmount = finalTuition;
+          if (todayDay > 1) {
+            try {
+              const preview = await paymentsAPI.prepaidPreview({
+                student_id: newStudent.id,
+                base_amount: finalTuition,
+                enrollment_date: now.toISOString().split("T")[0],
+                year_month: yearMonth,
+              });
+              if (preview.data?.prorated_amount != null) {
+                paymentAmount = preview.data.prorated_amount;
+              }
+            } catch {
+              // Backend preview not available, calculate locally
+              const totalDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+              const remainingDays = totalDays - todayDay + 1;
+              paymentAmount = Math.floor((finalTuition / totalDays) * remainingDays / 1000) * 1000;
+            }
+          }
+
           await paymentsAPI.create({
             student_id: newStudent.id,
             year_month: yearMonth,
             payment_type: "monthly",
             base_amount: form.monthly_tuition || 0,
             discount_amount: (form.monthly_tuition || 0) - finalTuition,
-            final_amount: finalTuition,
+            final_amount: paymentAmount,
             payment_status: "unpaid",
+            notes: todayDay > 1 ? `일할계산 (${todayDay}일 등록)` : undefined,
           });
-          toast.success("학생이 등록되고 수납이 자동 생성되었습니다");
+          const msg = todayDay > 1
+            ? `학생 등록 완료 (${yearMonth} 일할계산 수납 ${paymentAmount.toLocaleString()}원 생성)`
+            : "학생이 등록되고 수납이 자동 생성되었습니다";
+          toast.success(msg);
         } catch {
           toast.success("학생이 등록되었습니다 (수납 자동 생성 실패 - 수동으로 생성해주세요)");
         }
